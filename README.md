@@ -1,0 +1,93 @@
+# LiquidChart
+
+A local charting MVP with an independently implemented TypeScript + Canvas 2D engine. No TradingView code, charting libraries, or market-data services are used.
+
+## Start
+
+Requires Node.js 22.18+ (Node.js 24 recommended).
+
+```sh
+gh repo clone SajjadKiani/liquid-chart
+cd liquid-chart
+npm install
+npm run dev
+```
+
+Open the Local URL printed by Vite. The server binds to loopback only.
+
+```sh
+npm test       # Data validation, updates, scales, zoom anchors, time anchors, MA
+npm run build # Type-check and produce dist/
+npm run preview
+```
+
+## Included
+
+- Custom candle and line rendering, price/time axes, volume, and MA 20.
+- Linear and logarithmic price scales, with a footer toggle and Style selector.
+- Visible-range rendering and automatic price scaling; high-DPI canvas buffers.
+- Two-axis pointer panning, cursor-anchored wheel zoom, price/time axis drag and wheel zoom, crosshair and OHLC readout.
+- Watchlist, search, demo timeframe switching, and live/pause controls.
+- Trendlines (two clicks) and horizontal levels (one click), anchored to time/price.
+- Per-demo-market/timeframe drawings and chart colors/options saved in localStorage.
+- Separate up/down candle body and border colors in Style, with saved preferences and a default-color reset.
+- Custom chart background and grid colors in Style, applied immediately and saved with preferences.
+- JSON import and export; imported datasets pause the simulator.
+- Responsive layout, keyboard controls, style settings, and help dialog.
+
+Drag the chart to pan time and price together; drag up/down on the right price axis to zoom prices in/out. Drag right/left on the bottom time axis to zoom time in/out. Pan past the latest candle to reveal space on its right, up to almost a full screen while retaining the last candle. Shift-wheel (or horizontal trackpad scrolling) moves time. Wheel over the price axis zooms prices vertically; wheel over the time axis zooms time horizontally. Scroll up zooms in; scroll down zooms out. Both gestures preserve the price/time under the initial pointer unless a viewport/numeric limit applies. Alt-wheel over the plot moves prices. Ordinary wheel over the plot zooms around the pointer.
+
+Focus the chart: Left/Right move time, Up/Down move prices, + / - zoom, Home follows the last candle, A fits prices, and Escape cancels drawing mode. **Auto** in the footer restores automatic price fitting without moving the time viewport. Vertical scrolling keeps a manual price range during horizontal navigation and live updates; switching scales or datasets restores automatic fitting. Double-click the price axis to fit prices, or the time axis to reset candle spacing and follow latest without changing a manual price range. Double-click the plot or Reset view resets both axes. Go to latest resumes time following while retaining a manual price range. Clearing drawings removes only the current chart's drawings.
+
+### Logarithmic price scale
+
+Click **Log** in the chart footer or select **Logarithmic** under **Style → Price scale**. Equal percentage changes occupy equal vertical distances (for example, 10 → 20 and 20 → 40). Axis labels and crosshair values remain prices; candles, line series, moving averages, drawing anchors, and latest-price lines share the same scale. Volume remains linear. The scale preference is saved with other chart options and does not reset when switching markets/timeframes or resetting the view.
+
+Log mode requires every candle's low to be strictly positive. Datasets containing zero or negative prices remain supported on the linear scale; the Log toggle is disabled and the chart falls back to linear without discarding the saved log preference. Returning to positive data restores log mode. Drawings at non-positive prices are hidden in log mode and reappear in linear mode; their stored anchors are retained.
+
+### Candle colors
+
+Open **Style** to choose **Up candle body**, **Up candle border**, **Down candle body**, and **Down candle border** independently. Border colors outline candle bodies; wicks and volume retain the body colors. Choices persist across reloads and markets. Existing saved preferences without border colors use their body colors for borders. Border options apply to candles in both linear and log modes; the line series continues to use the up body color.
+
+For engine customization, call `configure({ upBorderColor: '#ffffff', downBorderColor: '#e8b05f' })` independently of `upColor` and `downColor`.
+
+### Background and grid colors
+
+Choose **Style → Chart background** and **Grid color** to change the chart immediately. The background covers the price plot, volume panel, axes, and OHLC header. Grid color applies to horizontal price lines and vertical time lines in candle and line modes, on linear and logarithmic scales. Both choices persist across reloads and markets. Older saved preferences use the default background and grid colors. **Restore default colors** resets all six chart and candle colors.
+
+For engine customization, call `configure({ backgroundColor: '#101827', gridColor: '#334155' })`.
+
+## Data contract
+
+Import a JSON array:
+
+```json
+[
+  { "time": 1791676800000, "open": 100, "high": 105, "low": 98, "close": 103, "volume": 1200 },
+  { "time": 1791680400000, "open": 103, "high": 108, "low": 102, "close": 106, "volume": 1450 }
+]
+```
+
+`time` is a UTC timestamp in **milliseconds**. OHLC fields are finite numbers. High and low must contain open and close. Volume is optional (defaults to zero), finite, and non-negative. Imports are sorted; duplicate timestamps use the last record. Invalid imports leave current data intact. Limit: 100,000 candles / 25 MB. Import data remains in session memory, not localStorage. Switching a demo market/timeframe replaces the imported dataset; it does not resample it. Import drawings last for the current import session; demo drawings restore across reloads.
+
+## Extend
+
+- `src/model.ts`: pure data store, validation, scales, moving average, time lookup.
+- `src/engine.ts`: rendering, viewport, interaction, redraw scheduling, drawing anchors.
+- `src/demo.ts`: sample symbols and deterministic synthetic history.
+- `src/main.ts`: workspace UI, file actions, persistence, accelerated live simulator.
+- `src/style.css`: interface styling.
+
+Instantiate `ChartEngine` with a sized host element. Call `setData(candles)` to replace history, `update(candle)` for timestamp-based insertion/replacement, and `configure(options)` for styling. Subscribe for crosshair/viewport changes. Use `destroy()` when removing the engine.
+
+Use `fitPrices()` to restore automatic price fitting, `resetView()` to reset both axes, and `followLatest()` to follow time while retaining a manual price range.
+
+Use `configure({ priceScale: 'log' })` or `configure({ priceScale: 'linear' })` to request a scale. `chart.priceScale` and subscription state expose the effective scale; `chart.options.priceScale` retains the preference. `chart.store.supportsLogScale` reports whether the full dataset permits logarithmic scaling.
+
+The engine is independent of any UI framework. Add custom renderers beside the candle renderer, share the time/price scale functions, and keep user drawings anchored to market coordinates. A provider adapter should translate vendor data into the Candle contract; do not embed provider secrets in browser code.
+
+## MVP boundaries
+
+All built-in prices are synthetic, not actual quotes. Simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected demo market streams. No broker, account, backend, order execution, or real-time exchange feed is connected. Timeframes generate separate sample histories rather than aggregating one shared feed. Drawings support creation and clearing, not selection or editing. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
+
+Useful next steps: a real provider adapter, history pagination, editable drawings, shared resampling, indicator plugins, touch pinch zoom, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.
