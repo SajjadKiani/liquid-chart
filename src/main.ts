@@ -2,6 +2,7 @@ import './style.css';
 import { ChartEngine, formatPrice } from './engine.ts';
 import type { ChartOptions } from './engine.ts';
 import { generateCandles, instruments, intervals } from './demo.ts';
+import { binanceSymbols, connectBinance } from './binance.ts';
 import type { Drawing, Tool } from './model.ts';
 
 const icons: Record<string, string> = {
@@ -38,6 +39,7 @@ app.innerHTML = `
       <div class="sidebar-footer"><span class="status-dot"></span> Local workspace <span class="version">v0.1</span></div>
     </aside>
     <main class="main">
+      <div class="source-controls"><label for="data-source">Data source</label><select id="data-source"><option value="binance">Binance spot</option><option value="demo">Demo</option><option value="imported" disabled hidden>Imported file</option></select><span id="source-status" role="status" aria-live="polite">Starting…</span><button id="retry-feed" class="text-button" hidden>Retry</button></div>
       <section class="market-header" aria-label="Selected market">
         <div class="market-title"><span class="eyebrow">MARKET OVERVIEW</span><div class="title-line"><h1 id="symbol-title">Bitcoin <span>BTC / USD</span></h1><span class="asset-tag" id="asset-tag">CRYPTO</span></div><p id="source-description">Synthetic prices · independent chart workspace</p></div>
         <div class="quote"><div id="latest-price">64,218.00 <span>USD</span></div><div id="latest-change" class="positive">+0.00% <span>last candle</span></div></div>
@@ -96,7 +98,7 @@ app.innerHTML = `
   </div>
   <input id="file-input" type="file" accept="application/json,.json" hidden />
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">QUICK GUIDE</span><button id="help-close" aria-label="Close help">×</button></div><h2>Find your perspective.</h2><dl><dt>Pan & zoom</dt><dd>Drag the chart to move time and price together. Pan past the latest candle to reveal space on its right. Scroll to zoom; Shift-scroll moves time. Drag up/down or scroll on the right price axis to zoom vertically. Drag right/left or scroll on the bottom time axis to zoom horizontally. Alt-scroll on the plot moves prices. Double-click an axis to reset it. Auto fits visible prices again. Double-click resets both axes.</dd><dt>Price scale</dt><dd>Use Log in the chart footer or Style → Price scale. Equal percentage moves have equal vertical spacing. Log mode requires positive prices; zero or negative data uses the linear scale.</dd><dt>Drawing tools</dt><dd>Select a trendline and click two points. Select a price level and click once. Escape returns to the cursor. Drawings are saved for each market and timeframe in this browser.</dd><dt>Keyboard</dt><dd>Focus the chart: ← / → move time, ↑ / ↓ move prices, + / − zoom, Home follows the latest candle, and A fits prices.</dd><dt>Your data</dt><dd>Import a JSON array of candles with time (UTC milliseconds), open, high, low, close, and optional volume. Imports pause the simulation.</dd><dt>Live demo</dt><dd>Prices are synthetic. The accelerated simulator updates every second and opens a new candle every 10 seconds. This is not an exchange feed.</dd></dl></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">QUICK GUIDE</span><button id="help-close" aria-label="Close help">×</button></div><h2>Find your perspective.</h2><dl><dt>Pan & zoom</dt><dd>Drag the chart to move time and price together. Pan past the latest candle to reveal space on its right. Scroll to zoom; Shift-scroll moves time. Drag up/down or scroll on the right price axis to zoom vertically. Drag right/left or scroll on the bottom time axis to zoom horizontally. Alt-scroll on the plot moves prices. Double-click an axis to reset it. Auto fits visible prices again. Double-click resets both axes.</dd><dt>Price scale</dt><dd>Use Log in the chart footer or Style → Price scale. Equal percentage moves have equal vertical spacing. Log mode requires positive prices; zero or negative data uses the linear scale.</dd><dt>Drawing tools</dt><dd>Select a trendline and click two points. Select a price level and click once. Escape returns to the cursor. Drawings are saved for each market and timeframe in this browser.</dd><dt>Keyboard</dt><dd>Focus the chart: ← / → move time, ↑ / ↓ move prices, + / − zoom, Home follows the latest candle, and A fits prices.</dd><dt>Your data</dt><dd>Import a JSON array of candles with time (UTC milliseconds), open, high, low, close, and optional volume. Imports pause the simulation.</dd><dt>Market data</dt><dd>Select Binance spot for live USDT candles, or Demo for synthetic candles. Pause stops live updates; resume refreshes history. Only the selected market streams. Binance access depends on your network.</dd><dt>Live demo</dt><dd>Demo prices are synthetic. The accelerated simulator updates every second and opens a new candle every 10 seconds. This is not an exchange feed.</dd></dl></dialog>
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -105,6 +107,12 @@ let selected = 0;
 let interval = intervals[3];
 let running = true;
 let imported = false;
+let source: 'demo' | 'binance' = 'demo';
+let displayedSource: 'demo' | 'binance' | 'imported' = 'demo';
+let displayedSelected = selected;
+let displayedInterval = interval;
+let feed: ReturnType<typeof connectBinance> | undefined;
+let feedGeneration = 0;
 let tick = 0;
 let toastTimer: ReturnType<typeof setTimeout>;
 const priceCache = instruments.map(s => s.base);
@@ -123,7 +131,9 @@ function saveStorage(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { toast('Browser storage is unavailable. Changes will last for this session.'); }
 }
 // Retain the original storage namespace so existing preferences and drawings survive the rename.
-const drawingKey = () => `chartroom.drawings.${imported ? 'custom' : instruments[selected].symbol}.${interval.label}`;
+const drawingKey = () => displayedSource === 'binance'
+  ? `liquidchart.drawings.binance.${binanceSymbols[displayedSelected]}.${displayedInterval.label}`
+  : `chartroom.drawings.${imported ? 'custom' : instruments[displayedSelected].symbol}.${displayedInterval.label}`;
 function loadDrawings(): void {
   const value = readStorage(drawingKey());
   const anchorValid = (a: unknown): boolean => {
@@ -191,7 +201,7 @@ syncOptions();
 
 function setRunning(value: boolean): void {
   running = value && !imported;
-  el('live-label').textContent = imported ? 'Imported data' : running ? 'Live demo' : 'Paused';
+  el('live-label').textContent = imported ? 'Imported data' : running ? source === 'binance' ? 'Live Binance' : 'Live demo' : 'Paused';
   el('live-toggle').classList.toggle('paused', !running);
   el('live-toggle').setAttribute('aria-pressed', String(running));
   el<HTMLButtonElement>('live-toggle').disabled = imported;
@@ -202,7 +212,7 @@ function refreshQuote(): void {
   const last = candles[candles.length - 1];
   if (!last) return;
   const change = last.open === 0 ? 0 : (last.close - last.open) / Math.abs(last.open) * 100;
-  el('latest-price').innerHTML = `${formatPrice(last.close)} <span>${imported ? '' : 'USD'}</span>`;
+  el('latest-price').innerHTML = `${formatPrice(last.close)} <span>${displayedSource === 'imported' ? '' : displayedSource === 'binance' ? 'USDT' : 'USD'}</span>`;
   el('latest-change').innerHTML = `${change >= 0 ? '+' : ''}${change.toFixed(2)}% <span>last candle</span>`;
   el('latest-change').className = change >= 0 ? 'positive' : 'negative';
   const recent = candles.slice(-50);
@@ -212,26 +222,35 @@ function refreshQuote(): void {
   el('range-low').textContent = formatPrice(low);
   el('range-volume').textContent = Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(volume);
   if (!imported) {
-    priceCache[selected] = last.close;
-    document.querySelector(`[data-price="${selected}"]`)!.textContent = formatPrice(last.close);
-    const watchChange = document.querySelector(`[data-change="${selected}"]`)!;
+    priceCache[displayedSelected] = last.close;
+    document.querySelector(`[data-price="${displayedSelected}"]`)!.textContent = formatPrice(last.close);
+    const watchChange = document.querySelector(`[data-change="${displayedSelected}"]`)!;
     watchChange.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
     watchChange.className = change >= 0 ? 'positive' : 'negative';
   }
 }
 
-function loadMarket(): void {
+function stopFeed(): void {
+  feedGeneration++;
+  feed?.stop(); feed = undefined;
+}
+
+function commitMarket(mode: 'demo' | 'binance'): void {
+  const changedSource = displayedSource !== mode;
+  displayedSource = mode;
+  displayedSelected = selected;
+  displayedInterval = interval;
   imported = false;
   const instrument = instruments[selected];
   chart.setTool('cursor');
-  chart.setData(generateCandles(instrument.base, interval.ms));
   loadDrawings();
-  el('symbol-title').innerHTML = `${instrument.name} <span>${instrument.symbol.replace('/', ' / ')}</span>`;
-  el('chart-symbol').textContent = instrument.symbol;
+  const symbol = mode === 'binance' ? `${instrument.tag}/USDT` : instrument.symbol;
+  el('symbol-title').innerHTML = `${instrument.name} <span>${symbol.replace('/', ' / ')}</span>`;
+  el('chart-symbol').textContent = symbol;
   el('chart-interval').textContent = interval.label;
-  el('source-description').textContent = 'Synthetic prices · independent chart workspace';
-  el('data-badge').innerHTML = '<i></i> SIMULATED DATA';
-  el('data-notice').innerHTML = '<i class="status-dot"></i> All prices are simulated. No market connection.';
+  el('source-description').textContent = mode === 'binance' ? 'Binance spot · USDT pairs · UTC candles' : 'Synthetic prices · independent chart workspace';
+  el('data-badge').innerHTML = mode === 'binance' ? '<i></i> BINANCE SPOT' : '<i></i> SIMULATED DATA';
+  el('data-notice').textContent = mode === 'binance' ? 'Binance spot data · Only the selected market streams.' : 'All prices are simulated. No market connection.';
   el('asset-tag').hidden = false;
   el('demo-data').hidden = true;
   document.querySelectorAll<HTMLButtonElement>('[data-symbol]').forEach(button => {
@@ -242,9 +261,54 @@ function loadMarket(): void {
     const isSelected = button.dataset.interval === interval.label;
     button.classList.toggle('active', isSelected); button.setAttribute('aria-pressed', String(isSelected));
   });
+  for (const [i, s] of instruments.entries()) {
+    if (changedSource) document.querySelector(`[data-price="${i}"]`)!.textContent = mode === 'binance' ? '—' : formatPrice(s.base);
+    document.querySelector(`[data-change="${i}"]`)!.textContent = mode === 'binance' ? 'Not streaming' : 'Demo feed';
+  }
   tick = 0;
-  setRunning(running);
   refreshQuote();
+}
+
+function loadMarket(): void {
+  stopFeed();
+  el<HTMLSelectElement>('data-source').value = source;
+  if (source === 'demo') {
+    chart.setData(generateCandles(instruments[selected].base, interval.ms));
+    commitMarket('demo'); setRunning(true);
+    el('source-status').textContent = 'Simulated candles';
+    el('retry-feed').hidden = true;
+    el('live-toggle').title = 'Simulated updates; a new candle every 10 seconds';
+    return;
+  }
+  setRunning(false);
+  el<HTMLButtonElement>('live-toggle').disabled = false;
+  el('live-toggle').title = 'Pause or resume Binance live candle updates';
+  const generation = feedGeneration;
+  let initialized = !imported && displayedSource === 'binance' && displayedSelected === selected && displayedInterval.label === interval.label;
+  const pair = `${instruments[selected].tag}/USDT`;
+  feed = connectBinance({
+    symbol: binanceSymbols[selected], interval: interval.label,
+    onHistory(candles) {
+      if (generation !== feedGeneration) return;
+      if (!initialized) { chart.setData(candles); commitMarket('binance'); initialized = true; }
+      else for (const candle of candles) chart.update(candle);
+      refreshQuote();
+    },
+    onCandle(candle) {
+      if (generation !== feedGeneration || !initialized) return;
+      chart.update(candle); refreshQuote();
+    },
+    onStatus(status, message) {
+      if (generation !== feedGeneration) return;
+      setRunning(status === 'live');
+      el<HTMLButtonElement>('live-toggle').disabled = false;
+      el('live-label').textContent = status === 'live' ? 'Live Binance' : status === 'error' ? 'Unavailable' : status === 'retrying' ? 'Reconnecting' : 'Connecting';
+      el('retry-feed').hidden = status !== 'error' && status !== 'retrying';
+      const retained = displayedSource === 'demo' ? 'Showing paused demo candles.' : displayedSource === 'imported' ? 'Showing imported candles.' : 'Showing last Binance snapshot.';
+      el('source-status').textContent = `${pair} · ${message}${status === 'live' ? '' : ` ${retained}`}`;
+      if (displayedSource === 'binance') el('data-notice').textContent = status === 'live' ? 'Binance spot data · Only the selected market streams.' : 'Binance data is not live. Waiting for connection.';
+    },
+  });
 }
 
 chart.subscribe(state => {
@@ -274,7 +338,7 @@ chart.subscribe(state => {
 document.querySelectorAll<HTMLButtonElement>('[data-symbol]').forEach(button => button.addEventListener('click', () => { selected = Number(button.dataset.symbol); loadMarket(); }));
 document.querySelectorAll<HTMLButtonElement>('[data-interval]').forEach(button => button.addEventListener('click', () => {
   interval = intervals.find(t => t.label === button.dataset.interval)!;
-  if (imported) toast('Switched back to simulated data. Imported candles are not resampled.');
+  if (imported) toast(`Switched to ${source === 'binance' ? 'Binance' : 'demo'} data. Imported candles are not resampled.`);
   loadMarket();
 }));
 document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach(button => button.addEventListener('click', () => chart.setTool(button.dataset.tool as Tool)));
@@ -284,8 +348,21 @@ el('auto-price').addEventListener('click', () => chart.fitPrices());
 el('follow').addEventListener('click', () => chart.followLatest());
 el('zoom-in').addEventListener('click', () => chart.zoom(1.2));
 el('zoom-out').addEventListener('click', () => chart.zoom(1 / 1.2));
-el('live-toggle').addEventListener('click', () => setRunning(!running));
-el('demo-data').addEventListener('click', () => { running = true; loadMarket(); });
+el('live-toggle').addEventListener('click', () => {
+  if (source === 'demo') { setRunning(!running); return; }
+  if (feed) {
+    stopFeed(); setRunning(false);
+    el('source-status').textContent = 'Binance updates paused. Resume to refresh history and reconnect.';
+    el('retry-feed').hidden = true;
+    if (displayedSource === 'binance') el('data-notice').textContent = 'Binance data · Updates paused.';
+  } else loadMarket();
+});
+el('data-source').addEventListener('change', () => {
+  source = el<HTMLSelectElement>('data-source').value === 'binance' ? 'binance' : 'demo';
+  loadMarket();
+});
+el('retry-feed').addEventListener('click', () => loadMarket());
+el('demo-data').addEventListener('click', () => { source = 'demo'; el<HTMLSelectElement>('data-source').value = 'demo'; loadMarket(); });
 for (const type of ['candles', 'line'] as const) el(type).addEventListener('click', () => { chart.configure({ style: type }); syncOptions(); saveOptions(); });
 el('ma-toggle').addEventListener('click', () => { chart.configure({ showMA: !chart.options.showMA }); syncOptions(); saveOptions(); });
 el('log-toggle').addEventListener('click', () => {
@@ -328,7 +405,7 @@ el('export').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(chart.store.candles, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = url; link.download = `liquid-chart-${imported ? 'custom' : instruments[selected].tag}-${interval.label}.json`;
+  link.href = url; link.download = `liquid-chart-${imported ? 'custom' : instruments[displayedSelected].tag}-${displayedSource}-${displayedInterval.label}.json`;
   link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   toast('Candle data exported.');
 });
@@ -342,7 +419,11 @@ el('file-input').addEventListener('change', async () => {
     const value: unknown = JSON.parse(await file.text());
     if (!Array.isArray(value)) throw new Error('Expected a JSON array of candle objects.');
     chart.setData(value);
+    stopFeed(); displayedSource = 'imported';
+    el<HTMLSelectElement>('data-source').value = 'imported';
     imported = true; setRunning(false); chart.setTool('cursor');
+    el('source-status').textContent = 'Imported local candles · Updates paused';
+    el('retry-feed').hidden = true;
     // An imported dataset gets fresh anchors; no unrelated drawing is reused.
     chart.setDrawings([]);
     el('symbol-title').textContent = 'Custom dataset';
@@ -356,15 +437,17 @@ el('file-input').addEventListener('change', async () => {
     document.querySelectorAll('[data-symbol], [data-interval]').forEach(button => { button.classList.remove('selected', 'active'); button.setAttribute('aria-pressed', 'false'); });
     refreshQuote();
     const scaleMessage = chart.options.priceScale === 'log' && !chart.store.supportsLogScale ? ' Using linear scale: log requires positive prices.' : '';
-    toast(`Imported ${chart.store.candles.length.toLocaleString()} candles. Simulation paused.${scaleMessage}`);
+    toast(`Imported ${chart.store.candles.length.toLocaleString()} candles. Live updates paused.${scaleMessage}`);
   } catch (error) { toast(error instanceof Error ? error.message : 'Could not import this file.'); }
   input.value = '';
 });
 
 loadMarket();
+source = 'binance';
+loadMarket();
 const timer = setInterval(() => {
   el('clock').textContent = new Date().toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }) + ' UTC';
-  if (!running || imported) return;
+  if (!running || imported || source !== 'demo' || displayedSource !== 'demo') return;
   const last = chart.store.candles[chart.store.candles.length - 1];
   const close = Math.max(0.000001, last.close * (1 + (Math.random() - 0.48) * 0.00055));
   tick++;
@@ -375,4 +458,12 @@ const timer = setInterval(() => {
   refreshQuote();
 }, 1000);
 
-if (import.meta.hot) import.meta.hot.dispose(() => { clearInterval(timer); clearTimeout(toastTimer); chart.destroy(); });
+let resumeOnPageShow = false;
+const pageHide = () => { resumeOnPageShow = !!feed; stopFeed(); };
+const pageShow = (event: PageTransitionEvent) => { if (event.persisted && source === 'binance' && !imported && resumeOnPageShow) loadMarket(); };
+window.addEventListener('pagehide', pageHide);
+window.addEventListener('pageshow', pageShow);
+if (import.meta.hot) import.meta.hot.dispose(() => {
+  stopFeed(); clearInterval(timer); clearTimeout(toastTimer); chart.destroy();
+  window.removeEventListener('pagehide', pageHide); window.removeEventListener('pageshow', pageShow);
+});

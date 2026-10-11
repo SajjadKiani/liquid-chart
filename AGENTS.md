@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-LiquidChart is a customizable financial charting platform built around an independently implemented candle engine. The current project is a local browser MVP, not a connected trading service.
+LiquidChart is a customizable financial charting platform built around an independently implemented candle engine. The current project is a browser MVP with public Binance spot data, synthetic demo data, and local imports. It has no trading or account connection.
 
 - Do not introduce TradingView code, libraries, widgets, APIs, or branding.
 - Keep the core chart renderer owned by this project. Do not replace it with a third-party charting library.
@@ -50,6 +50,7 @@ Use file tools for string literals, error messages, configuration values, and no
 | `src/model.ts` | Candle validation and storage, scales, coordinate math, time lookup, and moving averages. Keep it free of DOM and browser dependencies. |
 | `src/engine.ts` | Canvas rendering, viewport management, input handling, redraw scheduling, drawing geometry, and chart subscriptions. |
 | `src/demo.ts` | Synthetic instruments, timeframes, and reproducible sample history. |
+| `src/binance.ts` | Public Binance REST/WebSocket adapter, validation, buffering, lifecycle, and reconnects. |
 | `src/main.ts` | Workspace UI, browser storage, import/export, and simulated streaming. |
 | `src/style.css` | Responsive interface styling. |
 | `tests/` | Meaningful model tests and valid/invalid import fixtures. |
@@ -88,6 +89,7 @@ Indicator calculations must handle warmup periods and missing data explicitly. I
 ## Interface and persistence
 
 - Keep simulated data clearly labeled. Imported data must be labeled as imported rather than simulated or exchange-connected.
+- Label Binance spot data in USDT. Keep displayed source/pair labels tied to loaded candles while new requests are pending; never silently relabel demo data as live data. Preserve provider cancellation and reconnect history refresh. No API keys are needed for public market data.
 - Demo drawings are scoped by market and timeframe. Style options persist in localStorage. Imported candles and drawings currently remain session-only.
 - Handle unavailable or corrupt browser storage gracefully; the chart should remain usable without persistence.
 - Use safe DOM updates for filenames, symbols, or provider text. Do not interpolate untrusted strings into `innerHTML`.
@@ -98,7 +100,7 @@ Indicator calculations must handle warmup periods and missing data explicitly. I
 
 The simulator updates every second and creates a candle every 10 seconds, advancing by the selected timeframe. Timestamps can move into the future. Only the selected demo market streams; demo timeframes generate separate histories rather than resampling a shared feed.
 
-There is no connected exchange, backend, broker, account system, or order execution. Drawing tools support creation and clearing, but not selection/editing. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
+Binance public spot candles are connected, with the latest 1,000 bars loaded and refreshed on reconnect. Older history pagination is not implemented. There is no backend, broker, account system, or order execution. Drawing tools support creation and clearing, but not selection/editing. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
 
 Treat these as documented limitations, not completed capabilities. Update `README.md` and relevant UI guidance when implementing or changing them.
 

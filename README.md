@@ -1,6 +1,6 @@
 # LiquidChart
 
-A local charting MVP with an independently implemented TypeScript + Canvas 2D engine. No TradingView code, charting libraries, or market-data services are used.
+A charting MVP with an independently implemented TypeScript + Canvas 2D engine and Binance public spot market data. No TradingView code or third-party charting libraries are used.
 
 ## Start
 
@@ -33,6 +33,7 @@ npm run preview
 - Separate up/down candle body and border colors in Style, with saved preferences and a default-color reset.
 - Custom chart background and grid colors in Style, applied immediately and saved with preferences.
 - JSON import and export; imported datasets pause the simulator.
+- Binance spot history and live candles, source switching, pause/resume, and automatic reconnect with history resynchronization.
 - Responsive layout, keyboard controls, style settings, and help dialog.
 
 Drag the chart to pan time and price together; drag up/down on the right price axis to zoom prices in/out. Drag right/left on the bottom time axis to zoom time in/out. Pan past the latest candle to reveal space on its right, up to almost a full screen while retaining the last candle. Shift-wheel (or horizontal trackpad scrolling) moves time. Wheel over the price axis zooms prices vertically; wheel over the time axis zooms time horizontally. Scroll up zooms in; scroll down zooms out. Both gestures preserve the price/time under the initial pointer unless a viewport/numeric limit applies. Alt-wheel over the plot moves prices. Ordinary wheel over the plot zooms around the pointer.
@@ -57,6 +58,18 @@ Choose **Style → Chart background** and **Grid color** to change the chart imm
 
 For engine customization, call `configure({ backgroundColor: '#101827', gridColor: '#334155' })`.
 
+### Binance market data
+
+The app starts connecting to **Binance spot**. Choose **Data source → Demo** for synthetic candles. Binance uses BTC/USDT, ETH/USDT, SOL/USDT, and AVAX/USDT on the existing six timeframes. USDT is the quote asset; these are not USD pairs. The `1D` button maps to Binance's case-sensitive `1d` interval. The quote change is the current candle's change, not a 24-hour change. Only the selected market streams; other watchlist prices are previous snapshots or remain blank until selected.
+
+The adapter fetches the latest 1,000 UTC candles from `https://data-api.binance.vision/api/v3/klines` and subscribes to `wss://data-stream.binance.vision/ws/<symbol>@kline_<interval>`. These [official public market-data endpoints](https://github.com/binance/binance-spot-api-docs/blob/master/faqs/market_data_only.md) need no API key or account. There is no trading or account connection. Requests run directly from the browser.
+
+Incoming updates replace the open candle by timestamp and append new candles. Stream events are buffered during history requests. Disconnects and silent streams retry with delays up to 30 seconds; HTTP 429 respects `Retry-After` with a minimum one-minute wait. Reconnect and resume refresh the latest 1,000 candles without resetting a matching chart's viewport. Disconnects at Binance's connection lifetime are handled the same way. No extra client ping messages are needed because browsers handle WebSocket ping/pong frames.
+
+**Pause** closes the connection and keeps the displayed snapshot. Resume refreshes history and reconnects. Switching market, timeframe, source, or successfully importing candles cancels the old connection and ignores late responses. Failed imports preserve the active feed and candles. Binance drawings are saved separately from demo drawings. Style preferences apply to both.
+
+Connection status identifies loading, live, paused, unavailable, and retrying states. Until a new request succeeds, the previous chart stays visible with its original source labels; synthetic data is never labeled as Binance data. HTTP 403/418/451 stops automatic retry and offers **Retry** or **Demo**. Network or regional restrictions can prevent access. There is no proxy or alternate host to bypass them. After an outage longer than 1,000 intervals, older missing bars require a new load; history pagination is not implemented.
+
 ## Data contract
 
 Import a JSON array:
@@ -75,6 +88,7 @@ Import a JSON array:
 - `src/model.ts`: pure data store, validation, scales, moving average, time lookup.
 - `src/engine.ts`: rendering, viewport, interaction, redraw scheduling, drawing anchors.
 - `src/demo.ts`: sample symbols and deterministic synthetic history.
+- `src/binance.ts`: public REST/WebSocket adapter, validation, buffering, cancellation, and reconnects.
 - `src/main.ts`: workspace UI, file actions, persistence, accelerated live simulator.
 - `src/style.css`: interface styling.
 
@@ -88,6 +102,6 @@ The engine is independent of any UI framework. Add custom renderers beside the c
 
 ## MVP boundaries
 
-All built-in prices are synthetic, not actual quotes. Simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected demo market streams. No broker, account, backend, order execution, or real-time exchange feed is connected. Timeframes generate separate sample histories rather than aggregating one shared feed. Drawings support creation and clearing, not selection or editing. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
+Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, backend, or order execution. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation and clearing, not selection or editing. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
 
-Useful next steps: a real provider adapter, history pagination, editable drawings, shared resampling, indicator plugins, touch pinch zoom, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.
+Useful next steps: history pagination, editable drawings, shared demo resampling, indicator plugins, touch pinch zoom, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.
