@@ -1,6 +1,6 @@
 # LiquidChart
 
-A customizable financial chart engine built with TypeScript and Canvas 2D. Zero runtime dependencies. Candles, line charts, volume, MA, logarithmic scales, pan/zoom, 21 drawing tools, and OHLC magnet snapping. Framework-independent; no third-party chart renderer.
+A customizable financial chart engine built with TypeScript and Canvas 2D. Zero runtime dependencies. Candles, line charts, volume, MA, logarithmic scales, pan/zoom, 21 drawing tools, OHLC magnet snapping, and generic indicator overlays/panes. Framework-independent; no third-party chart renderer.
 
 The engine is the npm package; the watchlist, toolbar, Binance connection, imports, and browser persistence live in the [workspace demo](https://github.com/SajjadKiani/liquid-chart/blob/main/demo/README.md). The package never starts a data connection or writes browser storage.
 
@@ -52,6 +52,7 @@ Give the host an explicit height and load `liquid-chart/style.css`. The engine a
 | `update(candle)` | Replace or insert by timestamp; preserve historical views. |
 | `prependData(candles)` | Add strictly older bars without moving existing candles on screen; return the number added. |
 | `configure(options)` | Change colors, price scale, candles/line style, volume, MA visibility, or MA period. |
+| `setIndicator(id, output)`, `removeIndicator(id)`, `clearIndicators()` | Apply validated generic line/histogram/band series and independent panes. `setData` clears outputs; updates/prepends retain them. |
 | `subscribe(listener)` | Receive current state immediately and after redraws; return an unsubscribe function. |
 | `setTool(tool)` | Activate drawing mode or `cursor`. |
 | `setMagnet(mode)` | `off`, `weak` (12 CSS pixels), or `strong` (nearest candle's visible OHLC). Alt bypasses snapping. |
@@ -96,13 +97,38 @@ Drag to pan; scroll to zoom. Shift-scroll pans time and Alt-scroll pans price. D
 
 Drawings include lines/rays, Fibonacci retracement/time zones, brush/highlighter, arrows, rectangle/circle/ellipse, and price/date measurements. Your application supplies the toolbar and settings; the package implements their drawing behavior. View the demo for a complete example.
 
+## Custom indicators
+
+The package renders calculated values without knowing indicator names or formulas:
+
+```ts
+import { type IndicatorOutput } from 'liquid-chart';
+const output: IndicatorOutput = {
+  panes: [{ id: 'signal', title: 'Custom signal', levels: [{ value: 0 }] }],
+  series: [{ id: 'signal', name: 'Signal', paneId: 'signal', type: 'histogram',
+    color: '#64d5b2', baseline: 0, points: [{ time: 1791680400000, value: 3 }] }],
+};
+chart.setIndicator('my-calculation', output);
+// paneId: 'price' draws on the candle scale. null values leave warmup gaps.
+```
+
+A `band` series fills between `value` and `value2` in each point behind candles, with 22% fill opacity. Both must be finite, or both null for a gap. `color` fills where `value >= value2`; optional `negativeColor` fills the opposite ordering. Any series may set integer `offset` from -500 to 500 to shift its plots by candle positions. Keep point times attached to the original calculation candles; offsets move the display, including into future chart space, without inventing candle timestamps. This supports displaced clouds without adding indicator-specific formulas to the engine.
+
+Indicator outputs are copied and validated before application. Times are ascending UTC milliseconds; values are finite numbers or null. Each owner namespaces its panes. Limits across the chart: 20 owners, four independent panes, 64 series, 500,000 points. Pane scales are linear; price overlays share the selected candle scale. Time panning and the crosshair are shared. Removing a pane frees its space. Calculation belongs to your application.
+
+The repository also includes an **AI indicator studio**, separate from the npm engine. It optionally researches requests, generates JavaScript, validates artifacts, and executes them in QuickJS/WASM inside a terminable Worker. It supports OpenRouter, OpenAI, or NaraRouter through a local API service, with keys kept off the browser. See the [studio setup](demo/README.md#ai-indicator-studio) and [implementation plan](PLAN.md). Neither the AI service nor its dependencies are shipped in the engine tarball.
+
+Use the studio's **Web search** checkbox to request research or skip it entirely for a generation. The preference persists locally; artifacts generated without research have no citations and record their model-knowledge provenance.
+
 ## Develop and verify
 
 Use Node.js 22.18+; Node.js 24 is recommended for development.
 
 ```sh
 npm install
-npm run dev           # Workspace demo with live engine source edits
+npm run dev           # Workspace + local AI API; reads ignored .env
+npm run dev:demo      # Chart workspace only
+npm run dev:api       # AI API only (port 8787 by default)
 npm test              # Model, geometry, feed, history, and packed-package tests
 npm run build         # Type-check, build library, build demo from package exports
 npm run build:lib     # ESM/declarations/CSS into dist/
@@ -116,6 +142,6 @@ Core source is in `src/`; the separate application is in `demo/`. Only `dist/`, 
 
 ## Status and license
 
-This is an early 0.1.0 API. There is no broker, order execution, backend, or automatic provider connection. Advanced indicators, multi-pane charts, channels/pitchforks/Gann, text, drawing locks, and touch pinch zoom are not implemented. MA currently recalculates across loaded history on updates. Drawings are capped at 1,000 per chart and freehand strokes at 2,000 points.
+This is an early 0.1.0 API. The core has no broker, order execution, or automatic provider connection. The companion AI backend is a local development service, without production authentication or tenant isolation. Generated calculations support numeric parameters, lines, histograms, filled bands, bar offsets, and reference levels; markers, incremental calculation, and independent formula verification remain future work. Channels/pitchforks/Gann, text, drawing locks, and touch pinch zoom are not implemented. MA currently recalculates across loaded history on updates. Drawings are capped at 1,000 per chart and freehand strokes at 2,000 points.
 
 License: **UNLICENSED**. No open-source license has been granted. Publishing to npm is a separate release step; creating/installing a local tarball does not publish anything.

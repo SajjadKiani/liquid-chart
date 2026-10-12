@@ -5,6 +5,8 @@ import { snapToCandle } from './magnet.ts';
 import type { MagnetMode, Snap } from './magnet.ts';
 import type { Projection, Handle } from './drawings.ts';
 import type { Anchor, Candle, Drawing, Tool, PriceScale } from './model.ts';
+import { validateIndicatorOutput, indicatorRange, indicatorDataRange, indicatorPriceRange, indicatorY, indicatorValueAtY, indicatorLineSegments, bandPolygons, indicatorLayout, MAX_INDICATOR_PANES, MAX_INDICATOR_SERIES, MAX_INDICATOR_TOTAL_POINTS } from './indicators.ts';
+import type { BandVertex, IndicatorOutput, IndicatorPane, IndicatorSeries } from './indicators.ts';
 
 export type ChartOptions = {
   upColor: string; downColor: string; upBorderColor: string; downBorderColor: string; showVolume: boolean; showMA: boolean;
@@ -13,8 +15,9 @@ export type ChartOptions = {
 };
 export type ChartState = { candle: Candle | null; following: boolean; visible: number; firstVisibleIndex: number; tool: Tool; drawings: number; selectedDrawing: Drawing | null; canUndo: boolean; canRedo: boolean; priceScale: PriceScale; logAvailable: boolean; autoPrice: boolean };
 type Point = { x: number; y: number };
-type Frame = { width: number; height: number; priceBottom: number; volumeTop: number; bottom: number; low: number; high: number; left: number; priceScale: PriceScale };
-type Gesture = { x: number; y: number; right: number; spacing: number; offset: number; base: [number, number]; range: [number, number]; scale: PriceScale; mode: 'pan' | 'price-zoom' | 'time-zoom'; horizontal: boolean; vertical: boolean };
+type PaneFrame = { key: string; title: string; top: number; bottom: number; plotTop: number; plotBottom: number; range: [number, number]; pane: IndicatorPane; series: IndicatorSeries[] };
+type Frame = { width: number; height: number; priceBottom: number; volumeTop: number; bottom: number; low: number; high: number; left: number; priceScale: PriceScale; panes?: PaneFrame[] };
+type Gesture = { x: number; y: number; right: number; spacing: number; offset: number; base: [number, number]; range: [number, number]; scale: PriceScale; mode: 'pan' | 'price-zoom' | 'time-zoom'; horizontal: boolean; vertical: boolean; indicatorPane: boolean };
 
 export class ChartEngine {
   readonly store = new CandleStore();
@@ -49,6 +52,7 @@ export class ChartEngine {
   private raf = 0;
   private dirty = true;
   private average: (number | null)[] = [];
+  private indicators = new Map<string, IndicatorOutput>();
   private listeners = new Set<(state: ChartState) => void>();
   private host: HTMLElement;
   private addedHostClass = false;
@@ -95,11 +99,40 @@ export class ChartEngine {
 
   setData(candles: Candle[]): void {
     this.store.setData(candles);
+    this.indicators.clear();
     this.cancelDrawingGesture();
     this.average = movingAverage(this.store.candles, this.options.maPeriod);
     this.cursor = null;
     this.pending = null;
     this.resetView();
+  }
+
+  setIndicator(id: string, output: IndicatorOutput): void {
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/.test(id)) throw new Error('Indicator id must be a short identifier.');
+    const validated = validateIndicatorOutput(output);
+    const candidate = new Map(this.indicators);
+    candidate.set(id, validated);
+    const totals = [...candidate.values()].reduce((sum, item) => {
+      sum.panes += item.panes.length;
+      sum.series += item.series.length;
+      for (const series of item.series) sum.points += series.points.length;
+      return sum;
+    }, { panes: 0, series: 0, points: 0 });
+    if (candidate.size > 20 || totals.panes > MAX_INDICATOR_PANES || totals.series > MAX_INDICATOR_SERIES || totals.points > MAX_INDICATOR_TOTAL_POINTS) {
+      throw new Error('Indicator layers exceed the chart-wide owner, pane, series, or point limit.');
+    }
+    this.indicators.set(id, validated);
+    if (this.following) this.right = this.latestRight();
+    this.clampViewport();
+    this.invalidate();
+  }
+
+  removeIndicator(id: string): void {
+    if (this.indicators.delete(id)) { if (this.following) this.right = this.latestRight(); this.clampViewport(); this.invalidate(); }
+  }
+
+  clearIndicators(): void {
+    if (this.indicators.size) { this.indicators.clear(); if (this.following) this.right = this.latestRight(); this.clampViewport(); this.invalidate(); }
   }
 
   update(candle: Candle): void {
@@ -316,13 +349,19 @@ export class ChartEngine {
 
   private clampViewport(): void {
     const [minimum, maximum] = timeViewportBounds(this.store.candles.length, Math.max(1, this.width - 82), this.spacing);
-    this.right = Math.max(minimum, Math.min(maximum, this.right));
+    this.right = Math.max(minimum, Math.min(maximum + this.maxPositiveIndicatorOffset(), this.right));
+  }
+
+  private maxPositiveIndicatorOffset(): number {
+    let maximum = 0;
+    for (const output of this.indicators.values()) for (const series of output.series) maximum = Math.max(maximum, series.offset ?? 0);
+    return maximum;
   }
 
   private latestRight(): number {
     const visible = Math.max(1, this.width - 82) / this.spacing;
     // Keep short imported histories visible even at maximum zoom on a phone.
-    const margin = Math.min(6, Math.max(0, (visible - 1) / 2));
+    const margin = Math.max(Math.min(6, Math.max(0, (visible - 1) / 2)), Math.min(this.maxPositiveIndicatorOffset(), Math.max(0, visible - 1)));
     return this.store.candles.length + margin;
   }
 
@@ -334,13 +373,15 @@ export class ChartEngine {
   private gestureMode(p: Point): Gesture['mode'] | null {
     if (!this.frame || p.x < 0 || p.y < 0) return null;
     if (p.x <= this.frame.width && p.y >= this.frame.bottom) return 'time-zoom';
-    if (p.y < 18 || p.y > this.frame.priceBottom) return null;
+    if (p.x > this.frame.width && p.y > this.frame.priceBottom) return null;
+    if (p.y > this.frame.priceBottom && !this.frame.panes?.some(pane => p.y >= pane.top && p.y <= pane.bottom)) return null;
+    if (p.y < 18 || p.y > this.frame.bottom) return null;
     return p.x > this.frame.width ? 'price-zoom' : 'pan';
   }
 
   private updatePointerCursor(p?: Point): void {
     const mode = this.drag?.mode ?? (p ? this.gestureMode(p) : null);
-    const hit = p && mode === 'pan' && this.tool === 'cursor' && this.frame ? hitDrawing(this.drawings, p, this.projection(), this.selectedId) : null;
+    const hit = p && mode === 'pan' && this.tool === 'cursor' && this.frame && p.y <= this.frame.priceBottom ? hitDrawing(this.drawings, p, this.projection(), this.selectedId) : null;
     this.overlay.style.cursor = mode === 'price-zoom' ? 'ns-resize' : mode === 'time-zoom' ? 'ew-resize' : this.editing || hit ? hit?.handle ? 'crosshair' : 'move' : 'crosshair';
     this.overlay.title = mode === 'price-zoom' ? 'Drag up or scroll up to zoom price in · Double-click to fit prices' : mode === 'time-zoom' ? 'Drag right or scroll up to zoom time in · Double-click to reset time' : '';
   }
@@ -353,7 +394,7 @@ export class ChartEngine {
     const mode = this.gestureMode(p);
     if (!mode) return;
     this.cursor = p;
-    if (this.tool !== 'cursor' && mode === 'pan' && !event.shiftKey) {
+    if (this.tool !== 'cursor' && mode === 'pan' && p.y <= this.frame.priceBottom && !event.shiftKey) {
       if (this.drawings.length >= MAX_DRAWINGS) return;
       const anchor = this.anchorAt(this.clampDrawingPoint(p), event.altKey || freehand(this.tool));
       if (singlePoint(this.tool)) this.addDrawing(this.tool, anchor, anchor);
@@ -366,7 +407,7 @@ export class ChartEngine {
       this.invalidate(false);
       return;
     }
-    if (this.tool === 'cursor' && mode === 'pan' && !event.shiftKey) {
+    if (this.tool === 'cursor' && mode === 'pan' && p.y <= this.frame.priceBottom && !event.shiftKey) {
       const hit = hitDrawing(this.drawings, p, this.projection(), this.selectedId);
       this.selectedId = hit?.id ?? null;
       if (hit) {
@@ -378,7 +419,7 @@ export class ChartEngine {
         return;
       }
     }
-    this.drag = { x: p.x, y: p.y, right: this.right, spacing: this.spacing, offset: this.manualPrice?.offset ?? 0, base: this.manualPrice?.base ?? [this.frame.low, this.frame.high], range: [this.frame.low, this.frame.high], scale: this.frame.priceScale, mode, horizontal: false, vertical: false };
+    this.drag = { x: p.x, y: p.y, right: this.right, spacing: this.spacing, offset: this.manualPrice?.offset ?? 0, base: this.manualPrice?.base ?? [this.frame.low, this.frame.high], range: [this.frame.low, this.frame.high], scale: this.frame.priceScale, mode, horizontal: false, vertical: false, indicatorPane: (this.frame?.panes ?? []).some(pane => p.y >= pane.top && p.y <= pane.bottom) };
     this.updatePointerCursor(p);
     this.overlay.setPointerCapture(event.pointerId);
   };
@@ -433,7 +474,7 @@ export class ChartEngine {
           this.right = this.drag.right - dx / this.spacing;
           this.clampViewport();
         }
-        if (this.drag.vertical) this.manualPrice = { base: this.drag.base, offset: this.drag.offset + dy / Math.max(1, this.frame!.priceBottom - 18), scale: this.drag.scale };
+        if (this.drag.vertical && !this.drag.indicatorPane) this.manualPrice = { base: this.drag.base, offset: this.drag.offset + dy / Math.max(1, this.frame!.priceBottom - 18), scale: this.drag.scale };
         this.invalidate();
         return;
       }
@@ -554,19 +595,53 @@ export class ChartEngine {
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.fillStyle = this.options.backgroundColor;
     ctx.fillRect(0, 0, this.width, this.height);
-    if (!this.store.candles.length) return;
+    if (!this.store.candles.length) { this.frame = null; return; }
     const width = Math.max(1, this.width - 82);
     const bottom = Math.max(50, this.height - 32);
-    const priceBottom = this.options.showVolume ? bottom * 0.77 : bottom - 12;
-    const volumeTop = priceBottom + 28;
+    const paneDefs: { key: string; pane: IndicatorPane; series: IndicatorSeries[] }[] = [];
+    const priceSeries: IndicatorSeries[] = [];
+    for (const [owner, output] of this.indicators) {
+      for (const pane of output.panes) paneDefs.push({ key: `${owner}:${pane.id}`, pane, series: [] });
+      for (const series of output.series) {
+        if (series.paneId === 'price') priceSeries.push(series);
+        else paneDefs.find(pane => pane.key === `${owner}:${series.paneId}`)?.series.push(series);
+      }
+    }
+    const layout = indicatorLayout(bottom, paneDefs.length, this.options.showVolume);
+    const { paneCount, paneTop, paneHeight, priceBottom, volumeTop } = layout;
     const left = this.right - width / this.spacing;
     const start = Math.max(0, Math.floor(left));
     const end = Math.min(this.store.candles.length, Math.ceil(this.right));
+    const plotStart = Math.floor(left);
+    const plotEnd = Math.ceil(this.right);
     const visible = this.store.candles.slice(start, end);
     const scale = this.priceScale;
     if (this.manualPrice?.scale !== scale) this.manualPrice = null;
-    const [low, high] = this.manualPrice ? scrollPriceRange(this.manualPrice.base, this.manualPrice.offset, scale) : this.drawingRange ?? priceRange(visible, scale);
-    this.frame = { width, height: this.height, priceBottom, volumeTop, bottom, low, high, left, priceScale: scale };
+    const rangeStart = this.store.candles[Math.max(0, start)]?.time;
+    const rangeEnd = this.store.candles[Math.min(this.store.candles.length - 1, end)]?.time;
+    const visibleTime = rangeStart === undefined || rangeEnd === undefined ? undefined : [rangeStart, rangeEnd] as [number, number];
+    const timeForOffset = (offset: number): [number, number] | undefined => {
+      const sourceStart = plotStart - offset - 1, sourceEnd = plotEnd - offset + 1;
+      if (sourceEnd < 0 || sourceStart > this.store.candles.length - 1) return undefined;
+      return [indexToTime(this.store.candles, Math.max(0, sourceStart)), indexToTime(this.store.candles, Math.min(this.store.candles.length - 1, sourceEnd))];
+    };
+    const candleRange = this.drawingRange ?? (visible.length ? priceRange(visible, scale) : priceRange([this.store.candles.at(-1)!], scale));
+    let autoRange = candleRange ?? (scale === 'log' ? [1, 10] : [0, 1]);
+    if (!this.manualPrice && !this.drawingRange) {
+      const overlayRange = indicatorDataRange(priceSeries, undefined, timeForOffset, value => scale !== 'log' || value > 0);
+      autoRange = indicatorPriceRange(candleRange, overlayRange, scale === 'log');
+    }
+    const [low, high] = this.manualPrice ? scrollPriceRange(this.manualPrice.base, this.manualPrice.offset, scale) : autoRange;
+    const panes: PaneFrame[] = paneDefs.slice(0, paneCount).map(({ key, pane, series }, index) => {
+      const top = paneTop + index * paneHeight;
+      const paneBottom = top + paneHeight;
+      const header = Math.min(18, Math.max(1, paneHeight * 0.22));
+      const footer = Math.min(3, Math.max(0, paneHeight * 0.05));
+      const plotTop = top + header;
+      const plotBottom = Math.max(plotTop + 1, paneBottom - footer);
+      return { key, title: pane.title, top, bottom: paneBottom, plotTop, plotBottom, range: indicatorRange(series, pane.range, visibleTime, timeForOffset), pane, series };
+    });
+    this.frame = { width, height: this.height, priceBottom, volumeTop, bottom, low, high, left, priceScale: scale, panes };
     const y = (p: number) => priceToY(p, low, high, 18, priceBottom - 18, scale);
     const x = (i: number) => (i - left + 0.5) * this.spacing;
     ctx.font = '11px "SFMono-Regular", Consolas, monospace';
@@ -595,19 +670,19 @@ export class ChartEngine {
       ctx.fillStyle = '#6e7c82'; ctx.fillText('VOLUME', 14, volumeTop + 8);
     }
     ctx.save(); ctx.beginPath(); ctx.rect(0, 18, width, priceBottom - 18); ctx.clip();
+    for (const series of priceSeries) if (series.type === 'band') this.drawIndicatorSeries(ctx, series, { top: 18, bottom: priceBottom - 18, range: [low, high] }, plotStart, plotEnd, x, y);
     if (this.options.style === 'line') { ctx.beginPath(); ctx.strokeStyle = this.options.upColor; ctx.lineWidth = 1.8; }
     for (let i = start; i < end; i++) {
       const c = this.store.candles[i];
       const px = x(i);
       const color = c.close >= c.open ? this.options.upColor : this.options.downColor;
       if (this.options.style === 'candles') {
-        ctx.strokeStyle = color; ctx.lineWidth = 1;
+        ctx.strokeStyle = c.close >= c.open ? this.options.upBorderColor : this.options.downBorderColor; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(px, y(c.high)); ctx.lineTo(px, y(c.low)); ctx.stroke();
         ctx.fillStyle = color;
         const bodyTop = y(Math.max(c.open, c.close));
         const bodyHeight = Math.max(1, Math.abs(y(c.open) - y(c.close)));
         ctx.fillRect(px - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
-        ctx.strokeStyle = c.close >= c.open ? this.options.upBorderColor : this.options.downBorderColor;
         // Inset the outline so its stroke stays within the candle's OHLC bounds.
         ctx.strokeRect(px - bodyWidth / 2 + 0.5, bodyTop + 0.5, bodyWidth - 1, bodyHeight - 1);
       } else {
@@ -621,8 +696,9 @@ export class ChartEngine {
       for (let i = start; i < end; i++) {
         const c = this.store.candles[i];
         ctx.fillStyle = c.close >= c.open ? this.options.upColor : this.options.downColor;
-        const h = c.volume / maxVolume * Math.max(1, bottom - volumeTop - 15);
-        ctx.fillRect(x(i) - bodyWidth / 2, bottom - h, bodyWidth, h);
+        const volumeBottom = panes.length ? panes[0].top : bottom;
+        const h = c.volume / maxVolume * Math.max(1, volumeBottom - volumeTop - 15);
+        ctx.fillRect(x(i) - bodyWidth / 2, volumeBottom - h, bodyWidth, h);
       }
       ctx.globalAlpha = 1;
     }
@@ -637,6 +713,7 @@ export class ChartEngine {
       }
       ctx.stroke(); ctx.restore();
     }
+    for (const series of priceSeries) if (series.type !== 'band') this.drawIndicatorSeries(ctx, series, { top: 18, bottom: priceBottom - 18, range: [low, high] }, plotStart, plotEnd, x, y);
     const last = this.store.candles[this.store.candles.length - 1];
     const lastY = y(last.close);
     if (lastY >= 18 && lastY <= priceBottom) {
@@ -650,6 +727,94 @@ export class ChartEngine {
       ctx.fillRect(width + 1, lastY - 11, 81, 23);
       ctx.fillStyle = '#101719'; ctx.fillText(formatPrice(last.close), width + 10, lastY + 4);
     }
+    for (const pane of panes) {
+      ctx.fillStyle = this.options.backgroundColor; ctx.fillRect(0, pane.top, this.width, pane.bottom - pane.top);
+      ctx.strokeStyle = '#2b3438'; ctx.beginPath(); ctx.moveTo(0, pane.top); ctx.lineTo(this.width, pane.top); ctx.stroke();
+      ctx.fillStyle = '#87959a'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(pane.title, 8, pane.top + 13);
+      for (const level of pane.pane.levels ?? []) {
+        if (level.value < pane.range[0] || level.value > pane.range[1]) continue;
+        const ly = indicatorY(level.value, pane.range, pane.plotTop, pane.plotBottom);
+        ctx.strokeStyle = level.color ?? this.options.gridColor; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(width, ly); ctx.stroke(); ctx.setLineDash([]);
+        if (level.label) { ctx.fillStyle = level.color ?? '#87959a'; ctx.fillText(level.label, width + 8, ly - 2); }
+      }
+      const paneY = (value: number) => indicatorY(value, pane.range, pane.plotTop, pane.plotBottom);
+      for (const series of pane.series) if (series.type === 'band') this.drawIndicatorSeries(ctx, series, { top: pane.plotTop, bottom: pane.plotBottom, range: pane.range }, plotStart, plotEnd, x, paneY);
+      for (const series of pane.series) if (series.type !== 'band') this.drawIndicatorSeries(ctx, series, { top: pane.plotTop, bottom: pane.plotBottom, range: pane.range }, plotStart, plotEnd, x, paneY);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  private drawIndicatorSeries(ctx: CanvasRenderingContext2D, series: IndicatorSeries, plot: { top: number; bottom: number; range: [number, number] }, start: number, end: number, x: (index: number) => number, y: (value: number) => number): void {
+    const candles = this.store.candles;
+    const offset = series.offset ?? 0;
+    const sourceStart = start - offset - 1, sourceEnd = end - offset + 1;
+    if (sourceEnd < 0 || sourceStart > candles.length - 1) return;
+    const firstTime = indexToTime(candles, Math.max(0, sourceStart));
+    const lastTime = indexToTime(candles, Math.min(candles.length - 1, sourceEnd));
+    let lo = 0, hi = series.points.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (series.points[mid].time < firstTime) lo = mid + 1; else hi = mid; }
+    const begin = Math.max(0, lo - 1);
+    lo = begin; hi = series.points.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (series.points[mid].time <= lastTime) lo = mid + 1; else hi = mid; }
+    const finish = Math.min(series.points.length, lo + 1);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, plot.top, this.frame!.width, plot.bottom - plot.top); ctx.clip();
+    ctx.strokeStyle = series.color; ctx.fillStyle = series.color; ctx.lineWidth = 1.6;
+    if (series.type === 'band') {
+      ctx.globalAlpha = 0.22;
+      let run: BandVertex[] = [];
+      const flush = () => {
+        for (const polygon of bandPolygons(run)) {
+          if (polygon.vertices.length < 3) continue;
+          ctx.fillStyle = polygon.positive ? series.color : series.negativeColor ?? series.color;
+          ctx.beginPath();
+          polygon.vertices.forEach((vertex, index) => {
+            // Split fills in screen space so crossings land where the two rendered edges meet
+            // on both linear and logarithmic scales.
+            const px = vertex.x, py = -vertex.value;
+            if (!Number.isFinite(px) || !Number.isFinite(py)) return;
+            if (!index) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          });
+          ctx.closePath(); ctx.fill();
+        }
+        run = [];
+      };
+      for (let i = begin; i < finish; i++) {
+        const point = series.points[i];
+        if (point.value === null || point.value2 === null) { flush(); continue; }
+        const index = timeToIndex(candles, point.time), px = x(index + offset);
+        const firstY = y(point.value), secondY = y(point.value2);
+        if (!Number.isFinite(index) || !Number.isFinite(px) || !Number.isFinite(firstY) || !Number.isFinite(secondY)) { flush(); continue; }
+        run.push({ x: px, value: -firstY, value2: -secondY });
+      }
+      flush(); ctx.globalAlpha = 1;
+    } else if (series.type === 'line') {
+      ctx.beginPath();
+      for (const segment of indicatorLineSegments(series.points.slice(begin, finish))) {
+        let open = false;
+        for (const point of segment) {
+          const index = timeToIndex(candles, point.time);
+          const px = x(index + offset), py = y(point.value!);
+          if (!Number.isFinite(index) || !Number.isFinite(px) || !Number.isFinite(py)) { open = false; continue; }
+          if (!open) { ctx.moveTo(px, py); open = true; }
+          else ctx.lineTo(px, py);
+        }
+      }
+      ctx.stroke();
+    } else {
+      const baseline = series.baseline ?? 0;
+      const rawZeroY = y(baseline);
+      const zeroY = Number.isFinite(rawZeroY) ? rawZeroY : (baseline <= plot.range[0] ? plot.bottom : plot.top);
+      const barWidth = Math.max(1, this.spacing * 0.64);
+      for (let i = begin; i < finish; i++) {
+        const point = series.points[i]; if (point.value === null) continue;
+        const index = timeToIndex(candles, point.time);
+        if (!Number.isFinite(index)) continue;
+        const valueY = y(point.value);
+        if (!Number.isFinite(valueY)) continue;
+        ctx.fillRect(x(index + offset) - barWidth / 2, Math.min(valueY, zeroY), barWidth, Math.max(1, Math.abs(zeroY - valueY)));
+      }
+    }
+    ctx.restore();
   }
 
   private renderOverlay(): void {
@@ -715,12 +880,17 @@ export class ChartEngine {
     const px = (i - f.left + 0.5) * this.spacing;
     ctx.strokeStyle = '#88979b'; ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
     ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, f.bottom);
-    if (p.y <= f.priceBottom) { ctx.moveTo(0, p.y); ctx.lineTo(f.width, p.y); }
+    const activePane = (f.panes ?? []).find(pane => p.y >= pane.top && p.y <= pane.bottom);
+    if (p.y <= f.priceBottom || activePane) { ctx.moveTo(0, p.y); ctx.lineTo(f.width, p.y); }
     ctx.stroke(); ctx.setLineDash([]);
     ctx.font = '11px "SFMono-Regular", Consolas, monospace';
     if (p.y <= f.priceBottom) {
       ctx.fillStyle = '#465358'; ctx.fillRect(f.width + 1, p.y - 11, 81, 23);
       ctx.fillStyle = '#f4f7f7'; ctx.fillText(formatPrice(yToPrice(p.y, f.low, f.high, 18, f.priceBottom - 18, f.priceScale)), f.width + 10, p.y + 4);
+    } else if (activePane) {
+      const value = indicatorValueAtY(p.y, activePane.range, activePane.plotTop, activePane.plotBottom);
+      ctx.fillStyle = '#465358'; ctx.fillRect(f.width + 1, p.y - 11, 81, 23);
+      ctx.fillStyle = '#f4f7f7'; ctx.fillText(formatPrice(value), f.width + 10, p.y + 4);
     }
     // Empty time slots have no candle/time readout; keep the crosshair at the pointer.
     if (!candle) return;

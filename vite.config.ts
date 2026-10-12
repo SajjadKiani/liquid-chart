@@ -1,9 +1,14 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { fileURLToPath } from 'node:url';
 
 // Source aliases keep library edits live during development. Production demo
 // builds resolve the package exports from dist, just like an installed consumer.
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, process.cwd(), 'API_');
+  const proxy = { '/api': { target: `http://127.0.0.1:${process.env.API_PORT ?? env.API_PORT ?? '8787'}`, changeOrigin: false } };
+  return {
+  server: { proxy },
+  preview: { proxy },
   resolve: command === 'serve' ? {
     alias: [
       { find: /^liquid-chart$/, replacement: fileURLToPath(new URL('./src/index.ts', import.meta.url)) },
@@ -13,4 +18,5 @@ export default defineConfig(({ command }) => ({
     ],
   } : undefined,
   build: { outDir: 'demo-dist' },
-}));
+};
+});

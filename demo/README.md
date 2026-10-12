@@ -15,7 +15,7 @@ npm install
 npm run dev
 ```
 
-Open the Local URL printed by Vite. The server binds to loopback only.
+Open the Local URL printed by Vite. The workspace and local AI API bind to loopback. Charting and artifact import work without AI credentials.
 
 ```sh
 npm test       # Data validation, updates, scales, zoom anchors, time anchors, MA
@@ -23,13 +23,50 @@ npm run build # Type-check; package dist/ and demo-dist/
 npm run preview
 ```
 
+## AI indicator studio
+
+The studio places chat on the left and the chart on the right. Requests follow optional research → generated code → isolated smoke checks → at most two repairs → saved artifact. There is no RSI/EMA catalogue or indicator-name dispatch in this workflow. Existing MA 20 remains an ordinary demo control.
+
+On desktop, drag the divider between chat and chart left or right to resize the panels. The chat width is saved in this browser; both panels retain a minimum usable width. Focus the divider and use Left/Right arrows (Shift for larger steps), Home/End for the limits, or double-click to reset. Escape cancels an active resize. Narrow screens retain the stacked layout.
+
+The **Web search** checkbox beside Generate controls each request and remembers its setting in this browser. Checked (the initial default) requests research; unavailable search can fall back to model knowledge with empty sources and an explicit assumption. Unchecked skips the research stage entirely and makes no search call, even when search credentials are configured. The artifact records that research was disabled by the user. The checkbox is locked while a request is active and becomes available again after completion or cancellation. Authentication, quota, and invalid-model errors remain visible.
+
+For OpenRouter, copy `.env.example` to ignored `.env` and configure:
+
+```dotenv
+AI_PROVIDER=openrouter
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=your-key
+OPENAI_MODEL=poolside/laguna-s-2.1:free
+```
+
+An existing `OPENAI_API_KEY` also works when OpenRouter is selected; `OPENROUTER_API_KEY` takes precedence. `AI_MODEL` overrides `OPENAI_MODEL`. Do not prefix secrets with `VITE_`. Restart `npm run dev` after changing environment settings. The selected model is preserved; the adapter asks for JSON and applies strict validation without requiring Structured Outputs support. Research uses [OpenRouter's web search server tool](https://openrouter.ai/docs/guides/features/server-tools/web-search), with bounded Exa searches and returned citations. Search access, credits, model availability, and rate limits depend on your provider account, including for free models.
+
+OpenRouter generation defaults to `AI_MAX_OUTPUT_TOKENS=16000` and `AI_REASONING_EFFORT=low`. A response stopped by the token limit is discarded and retried once from scratch with twice the budget (maximum 32000), within the existing total deadline. Set `AI_REASONING_EFFORT=none` to omit the effort parameter for a model that does not support it. Token limits include provider reasoning overhead; this retry does not bypass authentication, quota, schema, or runtime checks. Restart the API after changing these settings.
+
+For NaraRouter, use `AI_PROVIDER=nararouter`, `OPENAI_BASE_URL=https://router.bynara.id/v1`, `OPENAI_API_KEY` for your Nara key, and `OPENAI_MODEL` for your model alias. Its generation adapter uses Chat Completions. `EXA_API_KEY` optionally enables actual Exa web research. Without available search, generation uses model knowledge and explicitly records **Web research skipped**, with no invented citation links. Search-key authentication and credit errors remain visible.
+
+For OpenAI directly, use `AI_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.openai.com/v1`, `OPENAI_API_KEY`, and a model supporting Responses web search and Structured Outputs. No LangChain is required.
+
+`npm run dev` starts both Vite and the API. `npm run dev:demo` and `npm run dev:api` run them separately. The default API port is 8787 (`API_PORT` changes both API and Vite proxy). For production-build local QA, run the API alongside `npm run preview`. The API checks local origins and bounds body size, concurrency, execution, and total request time. It is not a hosted production service; authentication, quotas, durable storage, and tenant isolation remain future work.
+
+Each artifact records its code hash, numeric parameters, sources, and assumptions. Inspect code, edit numeric parameters, remove/undo, or import/export artifacts. Parameter edits and incoming candle updates execute the saved code locally. Source/market/timeframe changes reject stale jobs and restore the relevant library. Demo/Binance libraries persist in browser storage; imported candle datasets and their libraries remain session-only. Corrupt storage and execution failures preserve usable chart data.
+
+Generated code receives only candles and numeric parameters. It has no application DOM, network, filesystem, or environment bridge. Each run uses a fresh bounded QuickJS context in a browser Worker; server smoke checks use a Node Worker watchdog. Infinite loops or allocation failures stop and the worker can recover. Code is never executed with host `eval` or `new Function`. The MVP accepts up to 100,000 candles per calculation; output-size limits may reject large multi-series histories. Calculations currently run over loaded history rather than incrementally.
+
+The chart supports overlays and up to four independent panes, line/histogram/band series, bar offsets, reference levels, and explicit null warmup gaps. Execution/schema checks **do not prove mathematical correctness**. Research sources and assumptions remain visible; independently verify formulas before relying on them. Missing keys, unavailable models, credit limits, malformed code, or failed checks produce errors, without simulated AI output.
+
+## Minimal workspace layout
+
+The demo opens as a flush chat/chart split with square corners. The chart starts at the top edge; there is no global header, watchlist, market overview, or promotional card. On narrow screens, chat and chart stack. Open **Chart controls** at the bottom for market/data selection, timeframes, chart type, live/pause, candle import/export, and Help. Drawing tools remain beside the chart. **Style** stays visible in the footer beside Auto/Log and opens background, grid, candle body/border, drawing, volume, MA, and price-scale settings. The chart readout and source label identify the displayed dataset.
+
 ## Included
 
 - Custom candle and line rendering, price/time axes, volume, and MA 20.
 - Linear and logarithmic price scales, with a footer toggle and Style selector.
 - Visible-range rendering and automatic price scaling; high-DPI canvas buffers.
 - Two-axis pointer panning, cursor-anchored wheel zoom, price/time axis drag and wheel zoom, crosshair and OHLC readout.
-- Watchlist, search, demo timeframe switching, and live/pause controls.
+- Market selection, timeframe switching, and live/pause controls inside Chart controls.
 - 21 drawing tools in grouped flyout menus: lines, Fibonacci, brushes, arrows, shapes, and measurements, anchored to time/price.
 - Off/Weak/Strong magnet snapping to candle OHLC, with a snap marker, temporary Alt bypass, and a saved mode preference.
 - Drawing selection, moving, resize handles, deletion, color/width controls, and undo/redo.
@@ -78,7 +115,7 @@ Log mode requires every candle's low to be strictly positive. Datasets containin
 
 ### Candle colors
 
-Open **Style** to choose **Up candle body**, **Up candle border**, **Down candle body**, and **Down candle border** independently. Border colors outline candle bodies; wicks and volume retain the body colors. Choices persist across reloads and markets. Existing saved preferences without border colors use their body colors for borders. Border options apply to candles in both linear and log modes; the line series continues to use the up body color.
+Open **Style** to choose **Up candle body**, **Up candle border**, **Down candle body**, and **Down candle border** independently. Border colors apply to both the candle outline and its high/low wick; volume retains the body colors. Choices persist across reloads and markets. Existing saved preferences without border colors use their body colors for borders. Border options apply to candles in both linear and log modes; the line series continues to use the up body color.
 
 For engine customization, call `configure({ upBorderColor: '#ffffff', downBorderColor: '#e8b05f' })` independently of `upColor` and `downColor`.
 
@@ -90,7 +127,7 @@ For engine customization, call `configure({ backgroundColor: '#101827', gridColo
 
 ### Binance market data
 
-The app starts connecting to **Binance spot**. Choose **Data source → Demo** for synthetic candles. Binance uses BTC/USDT, ETH/USDT, SOL/USDT, and AVAX/USDT on the existing six timeframes. USDT is the quote asset; these are not USD pairs. The `1D` button maps to Binance's case-sensitive `1d` interval. The quote change is the current candle's change, not a 24-hour change. Only the selected market streams; other watchlist prices are previous snapshots or remain blank until selected.
+The app starts connecting to **Binance spot**. Choose **Chart controls → Data → Demo** for synthetic candles. Binance uses BTC/USDT, ETH/USDT, SOL/USDT, and AVAX/USDT on the existing six timeframes. USDT is the quote asset; these are not USD pairs. The `1D` button maps to Binance's case-sensitive `1d` interval. The quote change is the current candle's change, not a 24-hour change. Only the selected market streams; market selection lists the supported pairs.
 
 The adapter fetches the latest 1,000 UTC candles from `https://data-api.binance.vision/api/v3/klines` and subscribes to `wss://data-stream.binance.vision/ws/<symbol>@kline_<interval>`. These [official public market-data endpoints](https://github.com/binance/binance-spot-api-docs/blob/master/faqs/market_data_only.md) need no API key or account. There is no trading or account connection. Requests run directly from the browser.
 
@@ -135,6 +172,10 @@ Import a JSON array:
 - `src/history.ts`: provider-independent historical pagination, single-request control, cancellation, retry, and end-of-history state.
 - `demo/main.ts`: workspace UI, file actions, persistence, accelerated live simulator.
 - `demo/style.css`: interface styling.
+- `src/indicators.ts`: generic output validation and pane layout.
+- `runtime/`: versioned artifact validation, bounded QuickJS execution, browser/Node workers.
+- `server/`: provider adapters and local research/generation/check/repair API.
+- `demo/ai-workspace.ts`, `demo/ai-controller.ts`: indicator chat, artifacts, and async lifecycle.
 
 Import `ChartEngine` and `liquid-chart/style.css` from the package. Instantiate `ChartEngine` with a sized host element. Call `setData(candles)` to replace history, `update(candle)` for timestamp-based insertion/replacement, and `configure(options)` for styling. Subscribe for crosshair/viewport changes. Use `destroy()` when removing the engine.
 
@@ -150,6 +191,6 @@ The engine is independent of any UI framework. Add custom renderers beside the c
 
 ## MVP boundaries
 
-Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, backend, or order execution. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation, selection, moving/resizing, styling, deletion, and session undo/redo; Specialist tools such as channels, pitchforks, Gann tools, forecasting/positions, volume profiles, and advanced Fibonacci tools are not implemented. Text annotations and drawing locks are not implemented. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
+Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, or order execution. The AI API is a separate local service. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation, selection, moving/resizing, styling, deletion, and session undo/redo; Specialist tools such as channels, pitchforks, Gann tools, forecasting/positions, volume profiles, and advanced Fibonacci tools are not implemented. Text annotations and drawing locks are not implemented. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
 
-Useful next steps: additional drawing families, shared demo resampling, indicator plugins, touch pinch zoom, internal gap recovery, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.
+Useful next steps: additional drawing families, shared demo resampling, additional indicator primitives, touch pinch zoom, internal gap recovery, and independent formula verification. Profile the renderer before introducing WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.

@@ -102,6 +102,17 @@ When adding a market-data provider, create a separate adapter that produces the 
 
 Indicator calculations must handle warmup periods and missing data explicitly. If adding aggregation or downsampling, preserve open-first, high-maximum, low-minimum, close-last, and summed-volume semantics. Do not apply ordinary line-series sampling to OHLC data.
 
+## Generated indicator boundaries
+
+- Core `src/` renders generic validated outputs; no formula catalogue or AI provider logic belongs in the package.
+- `runtime/` validates versioned/hash-checked artifacts and runs generated code in bounded QuickJS contexts inside terminable browser/Node workers. Never use host eval/new Function or give generated code DOM/network/filesystem/environment access.
+- `server/` selects OpenRouter/OpenAI/NaraRouter, preserves actual sources when web research is used, bounds generation/repair/deadlines, and keeps secrets server-side. Preserve user-selected models and provider base URLs. Never invent a production AI result when credentials or provider calls fail.
+- `demo/ai-workspace.ts` owns artifacts, scope persistence, numeric parameters, and explicit recalculation on data changes; subscriptions/redraws must not trigger calculation loops. Discard stale scope/data jobs and commit chart/state changes atomically.
+- Generic outputs support overlays and four independent panes, lines/histograms/bands/levels, finite or null warmup samples and generic bar offsets. Package imports stay DOM-safe and runtime dependencies stay zero. AI/runtime/demo files must remain outside the engine tarball.
+- NaraRouter can generate from model knowledge when search is unavailable, as explicitly authorized by the user. Record Web research skipped, keep sources empty, and never label model recall as web research or invent citations. Do not hide authentication/model/quota errors behind a fallback.
+- Band outputs contain paired values (both null for gaps); offsets are integer candle positions from -500 to 500. Keep timestamps candle-linked. Draw clouds behind candles and split fills at crossings. No indicator formula belongs in the renderer.
+- Smoke/schema checks do not establish formula correctness. Keep sources, assumptions, and limitations visible. The local AI service lacks production authentication/tenant isolation.
+
 ## Interface and persistence
 
 - Keep simulated data clearly labeled. Imported data must be labeled as imported rather than simulated or exchange-connected.
@@ -116,7 +127,7 @@ Indicator calculations must handle warmup periods and missing data explicitly. I
 
 The simulator updates every second and creates a candle every 10 seconds, advancing by the selected timeframe. Timestamps can move into the future. Only the selected demo market streams; demo timeframes generate separate histories rather than resampling a shared feed.
 
-Binance public spot candles are connected, with the latest 1,000 bars loaded and refreshed on reconnect. Panning left fetches older pages until available history ends. Loaded pages remain in session memory and are not capped by the import limit. Pagination does not automatically recover internal gaps from outages longer than the reconnect snapshot. There is no backend, broker, account system, or order execution. Drawing tools support 21 tools in grouped menus, selection, moving/resizing, styling, deletion, and undo/redo. Off/Weak/Strong magnet modes snap geometric anchors to OHLC; Alt bypasses snapping. Freehand strokes and whole-shape movement remain free. Channels, pitchforks, Gann, forecasting/positions, volume profiles, advanced Fibonacci tools, text, and drawing locks are not implemented. Undo history is session-only and resets on dataset changes; drawings are limited to 1,000 per chart with at most 2,000 points per brush stroke. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
+Binance public spot candles are connected, with the latest 1,000 bars loaded and refreshed on reconnect. Panning left fetches older pages until available history ends. Loaded pages remain in session memory and are not capped by the import limit. Pagination does not automatically recover internal gaps from outages longer than the reconnect snapshot. There is a local AI development backend; no broker, account system, or order execution. Drawing tools support 21 tools in grouped menus, selection, moving/resizing, styling, deletion, and undo/redo. Off/Weak/Strong magnet modes snap geometric anchors to OHLC; Alt bypasses snapping. Freehand strokes and whole-shape movement remain free. Channels, pitchforks, Gann, forecasting/positions, volume profiles, advanced Fibonacci tools, text, and drawing locks are not implemented. Undo history is session-only and resets on dataset changes; drawings are limited to 1,000 per chart with at most 2,000 points per brush stroke. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
 
 Treat these as documented limitations, not completed capabilities. Update `README.md` and relevant UI guidance when implementing or changing them.
 

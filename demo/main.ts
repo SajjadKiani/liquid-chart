@@ -9,6 +9,8 @@ import { drawingStyle, restoreDrawings } from 'liquid-chart';
 import { TOOL_GROUPS, toolLabel, freehand, singlePoint } from 'liquid-chart';
 import type { MagnetMode } from 'liquid-chart';
 import type { Drawing, Tool } from 'liquid-chart';
+import { createAIWorkspace } from './ai-workspace.ts';
+import { createWorkspaceSplit } from './workspace-split.ts';
 
 const icons: Record<string, string> = {
   fib: '<path d="M3 4h18M3 9h14M3 14h18M3 20h14"/><circle cx="4" cy="4" r="1"/><circle cx="17" cy="20" r="1"/>',
@@ -53,39 +55,11 @@ const icons: Record<string, string> = {
 const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] ?? ''}</svg>`;
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="LiquidChart home"><span class="brand-mark"><i></i><i></i><i></i></span>liquidchart<span class="brand-dot">.</span></a>
-    <nav class="topnav" aria-label="Workspace"><span class="nav-active">Workspace</span><span class="workspace-label">Personal workspace</span></nav>
-    <div class="top-right"><span class="demo-badge" id="data-badge"><i></i> SIMULATED DATA</span><button id="help" class="icon-button" aria-label="Chart controls and help">${icon('help')}</button><span class="avatar" aria-label="Local workspace">LC</span></div>
-  </header>
   <div class="workspace">
-    <aside class="sidebar">
-      <div class="sidebar-heading"><div><span class="eyebrow">YOUR MARKETS</span><h2>Watchlist <span>04</span></h2></div><span class="list-mark">≡</span></div>
-      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" placeholder="Find a market" aria-label="Search watchlist"/><kbd>/</kbd></label>
-      <div class="watch-labels"><span>ASSET</span><span>PRICE / CHANGE</span></div>
-      <div id="watchlist">${instruments.map((s, i) => `<button class="market ${i === 0 ? 'selected' : ''}" data-symbol="${i}" aria-pressed="${i === 0}"><span class="coin" style="--coin:${s.color}">${s.tag.slice(0, 1)}</span><span class="market-name"><strong>${s.tag}</strong><small>${s.name}</small></span><span class="market-price"><strong data-price="${i}">${formatPrice(s.base)}</strong><small data-change="${i}">Demo feed</small></span></button>`).join('')}</div>
-      <p id="no-results" hidden>No matching markets.</p>
-      <div class="sidebar-note"><span class="eyebrow">MAKE IT YOURS</span><h3>Your market.<br/>Your perspective.</h3><p>Adjust your chart, mark a level, or bring your own candle data.</p><button id="sidebar-import" class="text-button">Import candle data <span>↗</span></button></div>
-      <div class="sidebar-footer"><span class="status-dot"></span> Local workspace <span class="version">v0.1</span></div>
-    </aside>
-    <main class="main">
-      <div class="source-controls"><label for="data-source">Data source</label><select id="data-source"><option value="binance">Binance spot</option><option value="demo">Demo</option><option value="imported" disabled hidden>Imported file</option></select><span id="source-status" role="status" aria-live="polite">Starting…</span><button id="retry-feed" class="text-button" hidden>Retry</button></div>
-      <div id="history-info" class="history-controls" hidden><span id="history-status" role="status" aria-live="polite"></span><button id="retry-history" class="text-button" hidden>Retry history</button></div>
-      <section class="market-header" aria-label="Selected market">
-        <div class="market-title"><span class="eyebrow">MARKET OVERVIEW</span><div class="title-line"><h1 id="symbol-title">Bitcoin <span>BTC / USD</span></h1><span class="asset-tag" id="asset-tag">CRYPTO</span></div><p id="source-description">Synthetic prices · independent chart workspace</p></div>
-        <div class="quote"><div id="latest-price">64,218.00 <span>USD</span></div><div id="latest-change" class="positive">+0.00% <span>last candle</span></div></div>
-      </section>
+    <aside id="ai-workspace-host" class="sidebar ai-sidebar" aria-label="AI indicator workspace"></aside>
+    <div id="workspace-divider" class="workspace-divider" role="separator" tabindex="0" aria-label="Resize chat and chart" aria-orientation="vertical" aria-controls="ai-workspace-host chart-workspace" title="Drag to resize · Arrow keys adjust · Double-click resets"></div>
+    <main id="chart-workspace" class="main">
       <section class="chart-panel" aria-label="Chart workspace">
-        <div class="chart-toolbar">
-          <div class="timeframes" aria-label="Chart timeframe">${intervals.map(t => `<button data-interval="${t.label}" class="${t.label === '1h' ? 'active' : ''}" aria-pressed="${t.label === '1h'}">${t.label}</button>`).join('')}</div>
-          <span class="toolbar-divider"></span>
-          <div class="chart-types" aria-label="Chart type"><button id="candles" class="icon-button active" aria-label="Candlestick chart" aria-pressed="true" title="Candlesticks">${icon('candles')}</button><button id="line" class="icon-button" aria-label="Line chart" aria-pressed="false" title="Line chart">${icon('line')}</button></div>
-          <button id="ma-toggle" class="indicator-button active" aria-pressed="true"><span class="ma-dot"></span> MA 20</button>
-          <div class="toolbar-spacer"></div>
-          <button id="live-toggle" class="live-button" aria-pressed="true" title="Simulated updates; a new candle every 10 seconds"><span class="status-dot"></span> <span id="live-label">Live demo</span></button>
-          <button id="settings-toggle" class="settings-button" aria-expanded="false" aria-controls="settings">${icon('settings')} <span>Style</span></button>
-          <button id="export" class="icon-button" aria-label="Export candle data as JSON" title="Export JSON">${icon('download')}</button>
-        </div>
         <div class="chart-body">
           <div class="drawing-toolbar" aria-label="Drawing tools">
             <button data-tool="cursor" class="tool-button active" aria-label="Cursor and pan tool" aria-pressed="true" title="Cursor / select / pan">${icon('cursor')}</button>
@@ -129,13 +103,25 @@ app.innerHTML = `
             <label class="scale-setting"><span>Drawing width</span><select id="drawing-width"><option value="1">1 px</option><option value="1.5">1.5 px</option><option value="2" selected>2 px</option><option value="3">3 px</option><option value="4">4 px</option><option value="6">6 px</option></select></label>
           </div>
         </div>
-        <footer class="chart-footer"><span id="interaction-hint">Drag plot to pan · Drag axes to zoom</span><span id="bar-count"></span><button id="auto-price" class="scale-toggle active" aria-label="Automatically fit price range" aria-pressed="true" title="Fit visible prices · A">Auto</button><button id="log-toggle" class="scale-toggle" aria-label="Logarithmic price scale" aria-pressed="false" title="Log scale: equal percentage changes have equal vertical spacing">Log</button><span>UTC</span></footer>
+        <footer class="chart-footer"><span id="interaction-hint">Drag plot to pan · Drag axes to zoom</span><span id="displayed-source" aria-label="Displayed candle source">Demo · synthetic</span><span id="bar-count"></span><button id="settings-toggle" class="settings-button" aria-label="Chart style settings" aria-expanded="false" aria-controls="settings">${icon('settings')} <span>Style</span></button><button id="auto-price" class="scale-toggle active" aria-label="Automatically fit price range" aria-pressed="true" title="Fit visible prices · A">Auto</button><button id="log-toggle" class="scale-toggle" aria-label="Logarithmic price scale" aria-pressed="false" title="Log scale: equal percentage changes have equal vertical spacing">Log</button><span>UTC</span></footer>
       </section>
-      <section class="below-chart">
-        <div class="range-card"><span class="eyebrow">RECENT 50 CANDLES</span><div class="range-stats"><div><small>High</small><strong id="range-high">—</strong></div><div><small>Low</small><strong id="range-low">—</strong></div><div><small>Volume</small><strong id="range-volume">—</strong></div><div><small>Drawings</small><strong id="drawing-count">0</strong></div></div></div>
-        <div class="data-card"><span class="data-icon">${icon('upload')}</span><div><strong>Bring your own market</strong><p>Import OHLCV candles as JSON.</p></div><button id="import" class="secondary-button">Import data ↗</button><button id="demo-data" class="text-button" hidden>Return to demo</button></div>
-      </section>
-      <div class="workspace-footer"><span id="data-notice"><i class="status-dot"></i> All prices are simulated. No market connection.</span><span id="clock"></span></div>
+      <details class="compact-controls">
+        <summary>Chart controls</summary>
+        <div class="compact-control-content">
+          <div class="compact-row"><label for="market-select">Market</label><select id="market-select"><option value="imported" disabled hidden>Imported dataset</option>${instruments.map((s, i) => `<option value="${i}">${s.tag} · ${s.name}</option>`).join('')}</select><div class="source-controls"><label for="data-source">Data</label><select id="data-source"><option value="binance">Binance spot</option><option value="demo">Demo</option><option value="imported" disabled hidden>Imported file</option></select><span id="source-status" role="status" aria-live="polite">Starting…</span><button id="retry-feed" class="text-button" hidden>Retry</button></div></div>
+          <div id="history-info" class="history-controls" hidden><span id="history-status" role="status" aria-live="polite"></span><button id="retry-history" class="text-button" hidden>Retry history</button></div>
+          <div class="chart-toolbar">
+            <div class="timeframes" aria-label="Chart timeframe">${intervals.map(t => `<button data-interval="${t.label}" class="${t.label === '1h' ? 'active' : ''}" aria-pressed="${t.label === '1h'}">${t.label}</button>`).join('')}</div>
+            <span class="toolbar-divider"></span>
+            <div class="chart-types" aria-label="Chart type"><button id="candles" class="icon-button active" aria-label="Candlestick chart" aria-pressed="true" title="Candlesticks">${icon('candles')}</button><button id="line" class="icon-button" aria-label="Line chart" aria-pressed="false" title="Line chart">${icon('line')}</button></div>
+            <button id="ma-toggle" class="indicator-button active" aria-pressed="true"><span class="ma-dot"></span> MA 20</button>
+            <button id="live-toggle" class="live-button" aria-pressed="true" title="Simulated updates; a new candle every 10 seconds"><span class="status-dot"></span> <span id="live-label">Live demo</span></button>
+            <button id="export" class="icon-button" aria-label="Export candle data as JSON" title="Export JSON">${icon('download')}</button>
+            <button id="import" class="secondary-button">Import candles</button><button id="demo-data" class="text-button" hidden>Return to demo</button>
+            <button id="help" class="text-button" aria-label="Chart controls and help">Help</button>
+          </div>
+        </div>
+      </details>
     </main>
   </div>
   <input id="file-input" type="file" accept="application/json,.json" hidden />
@@ -144,6 +130,7 @@ app.innerHTML = `
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const destroyWorkspaceSplit = createWorkspaceSplit(app.querySelector<HTMLElement>('.workspace')!, el('workspace-divider'));
 const chart = new ChartEngine(el('chart'));
 let selected = 0;
 let interval = intervals[3];
@@ -153,12 +140,19 @@ let source: 'demo' | 'binance' = 'demo';
 let displayedSource: 'demo' | 'binance' | 'imported' = 'demo';
 let displayedSelected = selected;
 let displayedInterval = interval;
+let importedScope = '';
 let feed: ReturnType<typeof connectBinance> | undefined;
 let feedGeneration = 0;
 let history: ReturnType<typeof createHistoryPager> | undefined;
 let tick = 0;
 let toastTimer: ReturnType<typeof setTimeout>;
-const priceCache = instruments.map(s => s.base);
+const aiWorkspace = createAIWorkspace({
+  chart,
+  host: el('ai-workspace-host'),
+  scope: () => displayedSource === 'imported'
+    ? { key: `imported:${importedScope}`, persistent: false }
+    : `${displayedSource}:${displayedSource === 'binance' ? binanceSymbols[displayedSelected] : instruments[displayedSelected].symbol}:${displayedInterval.label}`,
+});
 
 function toast(message: string): void {
   el('toast').textContent = message;
@@ -247,29 +241,6 @@ function setRunning(value: boolean): void {
   el<HTMLButtonElement>('live-toggle').disabled = imported;
 }
 
-function refreshQuote(): void {
-  const candles = chart.store.candles;
-  const last = candles[candles.length - 1];
-  if (!last) return;
-  const change = last.open === 0 ? 0 : (last.close - last.open) / Math.abs(last.open) * 100;
-  el('latest-price').innerHTML = `${formatPrice(last.close)} <span>${displayedSource === 'imported' ? '' : displayedSource === 'binance' ? 'USDT' : 'USD'}</span>`;
-  el('latest-change').innerHTML = `${change >= 0 ? '+' : ''}${change.toFixed(2)}% <span>last candle</span>`;
-  el('latest-change').className = change >= 0 ? 'positive' : 'negative';
-  const recent = candles.slice(-50);
-  let high = -Infinity, low = Infinity, volume = 0;
-  for (const c of recent) { high = Math.max(high, c.high); low = Math.min(low, c.low); volume += c.volume; }
-  el('range-high').textContent = formatPrice(high);
-  el('range-low').textContent = formatPrice(low);
-  el('range-volume').textContent = Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(volume);
-  if (!imported) {
-    priceCache[displayedSelected] = last.close;
-    document.querySelector(`[data-price="${displayedSelected}"]`)!.textContent = formatPrice(last.close);
-    const watchChange = document.querySelector(`[data-change="${displayedSelected}"]`)!;
-    watchChange.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    watchChange.className = change >= 0 ? 'positive' : 'negative';
-  }
-}
-
 function stopFeed(): void {
   feedGeneration++;
   feed?.stop(); feed = undefined;
@@ -290,7 +261,7 @@ function ensureHistory(): void {
   history = createHistoryPager({
     oldestTime: () => chart.store.candles[0]?.time,
     fetchPage: (before, signal) => fetchBinanceOlder(symbol, label, before, signal),
-    prepend: candles => chart.prependData(candles),
+    prepend: candles => { const added = chart.prependData(candles); aiWorkspace.datasetChanged(); return added; },
     onStatus(status) {
       el('history-status').textContent = status.message;
       el('retry-history').hidden = status.state !== 'error';
@@ -300,7 +271,6 @@ function ensureHistory(): void {
 }
 
 function commitMarket(mode: 'demo' | 'binance'): void {
-  const changedSource = displayedSource !== mode;
   displayedSource = mode;
   displayedSelected = selected;
   displayedInterval = interval;
@@ -309,28 +279,18 @@ function commitMarket(mode: 'demo' | 'binance'): void {
   chart.setTool('cursor');
   loadDrawings();
   const symbol = mode === 'binance' ? `${instrument.tag}/USDT` : instrument.symbol;
-  el('symbol-title').innerHTML = `${instrument.name} <span>${symbol.replace('/', ' / ')}</span>`;
   el('chart-symbol').textContent = symbol;
   el('chart-interval').textContent = interval.label;
-  el('source-description').textContent = mode === 'binance' ? 'Binance spot · USDT pairs · UTC candles' : 'Synthetic prices · independent chart workspace';
-  el('data-badge').innerHTML = mode === 'binance' ? '<i></i> BINANCE SPOT' : '<i></i> SIMULATED DATA';
-  el('data-notice').textContent = mode === 'binance' ? 'Binance spot data · Only the selected market streams.' : 'All prices are simulated. No market connection.';
-  el('asset-tag').hidden = false;
+  el<HTMLSelectElement>('market-select').value = String(selected);
+  el<HTMLSelectElement>('market-select').options[0].hidden = true;
+  el('source-status').textContent = mode === 'binance' ? `${instrument.tag}/USDT · Binance spot · UTC` : `${instrument.symbol} · Simulated demo data · UTC`;
+  el('displayed-source').textContent = mode === 'binance' ? `Binance · ${instrument.tag}/USDT` : 'Demo · synthetic';
   el('demo-data').hidden = true;
-  document.querySelectorAll<HTMLButtonElement>('[data-symbol]').forEach(button => {
-    const isSelected = Number(button.dataset.symbol) === selected;
-    button.classList.toggle('selected', isSelected); button.setAttribute('aria-pressed', String(isSelected));
-  });
   document.querySelectorAll<HTMLButtonElement>('[data-interval]').forEach(button => {
     const isSelected = button.dataset.interval === interval.label;
     button.classList.toggle('active', isSelected); button.setAttribute('aria-pressed', String(isSelected));
   });
-  for (const [i, s] of instruments.entries()) {
-    if (changedSource) document.querySelector(`[data-price="${i}"]`)!.textContent = mode === 'binance' ? '—' : formatPrice(s.base);
-    document.querySelector(`[data-change="${i}"]`)!.textContent = mode === 'binance' ? 'Not streaming' : 'Demo feed';
-  }
   tick = 0;
-  refreshQuote();
 }
 
 function loadMarket(): void {
@@ -340,7 +300,7 @@ function loadMarket(): void {
   if (source === 'demo') {
     chart.setData(generateCandles(instruments[selected].base, interval.ms));
     commitMarket('demo'); setRunning(true);
-    el('source-status').textContent = 'Simulated candles';
+    aiWorkspace.datasetChanged();
     el('retry-feed').hidden = true;
     el('live-toggle').title = 'Simulated updates; a new candle every 10 seconds';
     return;
@@ -357,12 +317,12 @@ function loadMarket(): void {
       if (generation !== feedGeneration) return;
       if (!initialized) { chart.setData(candles); commitMarket('binance'); initialized = true; }
       else for (const candle of candles) chart.update(candle);
+      aiWorkspace.datasetChanged();
       ensureHistory();
-      refreshQuote();
     },
     onCandle(candle) {
       if (generation !== feedGeneration || !initialized) return;
-      chart.update(candle); refreshQuote();
+      chart.update(candle); aiWorkspace.datasetChanged();
     },
     onStatus(status, message) {
       if (generation !== feedGeneration) return;
@@ -372,7 +332,6 @@ function loadMarket(): void {
       el('retry-feed').hidden = status !== 'error' && status !== 'retrying';
       const retained = displayedSource === 'demo' ? 'Showing paused demo candles.' : displayedSource === 'imported' ? 'Showing imported candles.' : 'Showing last Binance snapshot.';
       el('source-status').textContent = `${pair} · ${message}${status === 'live' ? '' : ` ${retained}`}`;
-      if (displayedSource === 'binance') el('data-notice').textContent = status === 'live' ? 'Binance spot data · Only the selected market streams.' : 'Binance data is not live. Waiting for connection.';
     },
   });
 }
@@ -387,7 +346,6 @@ chart.subscribe(state => {
     el('ohlc').innerHTML = ['open', 'high', 'low', 'close'].map((key, i) => `<span><small>${['O', 'H', 'L', 'C'][i]}</small><b class="${c.close >= c.open ? 'positive' : 'negative'}">${formatPrice(c[key as keyof typeof c])}</b></span>`).join('');
   } else el('ohlc').textContent = '';
   el('bar-count').textContent = `${chart.store.candles.length.toLocaleString()} bars`;
-  el('drawing-count').textContent = String(state.drawings);
   el<HTMLButtonElement>('delete-drawing').disabled = !state.selectedDrawing;
   el<HTMLButtonElement>('clear-drawings').disabled = state.drawings === 0;
   el<HTMLButtonElement>('undo-drawing').disabled = !state.canUndo;
@@ -412,7 +370,7 @@ chart.subscribe(state => {
   el('interaction-hint').textContent = hint;
 });
 
-document.querySelectorAll<HTMLButtonElement>('[data-symbol]').forEach(button => button.addEventListener('click', () => { selected = Number(button.dataset.symbol); loadMarket(); }));
+el<HTMLSelectElement>('market-select').addEventListener('change', event => { selected = Number((event.target as HTMLSelectElement).value); loadMarket(); });
 document.querySelectorAll<HTMLButtonElement>('[data-interval]').forEach(button => button.addEventListener('click', () => {
   interval = intervals.find(t => t.label === button.dataset.interval)!;
   if (imported) toast(`Switched to ${source === 'binance' ? 'Binance' : 'demo'} data. Imported candles are not resampled.`);
@@ -480,7 +438,7 @@ el('live-toggle').addEventListener('click', () => {
     stopFeed(); setRunning(false);
     el('source-status').textContent = 'Binance updates paused. Resume to refresh history and reconnect.';
     el('retry-feed').hidden = true;
-    if (displayedSource === 'binance') el('data-notice').textContent = 'Binance data · Updates paused.';
+    if (displayedSource === 'binance') el('source-status').textContent = 'Binance spot data · Updates paused.';
   } else loadMarket();
 });
 el('data-source').addEventListener('change', () => {
@@ -511,19 +469,8 @@ function settings(open: boolean): void { if (open) drawingMenu(null); el('settin
 el('settings-toggle').addEventListener('click', () => settings(el('settings').hidden !== false));
 el('settings-close').addEventListener('click', () => settings(false));
 document.addEventListener('pointerdown', event => { if (!el('settings').contains(event.target as Node) && !el('settings-toggle').contains(event.target as Node)) settings(false); });
-el<HTMLInputElement>('search').addEventListener('input', event => {
-  const query = (event.target as HTMLInputElement).value.trim().toLowerCase();
-  let matches = 0;
-  document.querySelectorAll<HTMLButtonElement>('[data-symbol]').forEach(button => {
-    const s = instruments[Number(button.dataset.symbol)];
-    button.hidden = !`${s.symbol} ${s.name}`.toLowerCase().includes(query);
-    if (!button.hidden) matches++;
-  });
-  el('no-results').hidden = matches !== 0;
-});
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') settings(false);
-  if (event.key === '/' && !(event.target instanceof HTMLInputElement) && !el<HTMLDialogElement>('help-dialog').open) { event.preventDefault(); el('search').focus(); }
 });
 el('help').addEventListener('click', () => el<HTMLDialogElement>('help-dialog').showModal());
 el('help-close').addEventListener('click', () => el<HTMLDialogElement>('help-dialog').close());
@@ -536,7 +483,7 @@ el('export').addEventListener('click', () => {
   link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   toast('Candle data exported.');
 });
-for (const id of ['import', 'sidebar-import']) el(id).addEventListener('click', () => el<HTMLInputElement>('file-input').click());
+el('import').addEventListener('click', () => el<HTMLInputElement>('file-input').click());
 el('file-input').addEventListener('change', async () => {
   const input = el<HTMLInputElement>('file-input');
   const file = input.files?.[0];
@@ -546,23 +493,26 @@ el('file-input').addEventListener('change', async () => {
     const value: unknown = JSON.parse(await file.text());
     if (!Array.isArray(value)) throw new Error('Expected a JSON array of candle objects.');
     chart.setData(value);
+    importedScope = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     stopFeed(); stopHistory(); displayedSource = 'imported';
     el<HTMLSelectElement>('data-source').value = 'imported';
-    imported = true; setRunning(false); chart.setTool('cursor');
+    imported = true; setRunning(false); chart.setTool('cursor'); aiWorkspace.datasetChanged();
     el('source-status').textContent = 'Imported local candles · Updates paused';
     el('retry-feed').hidden = true;
     // An imported dataset gets fresh anchors; no unrelated drawing is reused.
     chart.setDrawings([]);
-    el('symbol-title').textContent = 'Custom dataset';
     el('chart-symbol').textContent = 'CUSTOM';
     el('chart-interval').textContent = 'Imported';
-    el('source-description').textContent = file.name;
-    el('data-badge').innerHTML = '<i></i> IMPORTED DATA';
-    el('data-notice').innerHTML = '<i class="status-dot"></i> Your local candle data. No market connection.';
-    el('asset-tag').hidden = true;
+    el('displayed-source').textContent = 'Imported · session only';
+    const marketSelect = el<HTMLSelectElement>('market-select');
+    marketSelect.options[0].hidden = false;
+    marketSelect.value = 'imported';
+    document.querySelectorAll<HTMLButtonElement>('[data-interval]').forEach(button => {
+      button.classList.remove('active');
+      button.setAttribute('aria-pressed', 'false');
+    });
+    el('source-status').textContent = `Imported: ${file.name} · Session only`;
     el('demo-data').hidden = false;
-    document.querySelectorAll('[data-symbol], [data-interval]').forEach(button => { button.classList.remove('selected', 'active'); button.setAttribute('aria-pressed', 'false'); });
-    refreshQuote();
     const scaleMessage = chart.options.priceScale === 'log' && !chart.store.supportsLogScale ? ' Using linear scale: log requires positive prices.' : '';
     toast(`Imported ${chart.store.candles.length.toLocaleString()} candles. Live updates paused.${scaleMessage}`);
   } catch (error) { toast(error instanceof Error ? error.message : 'Could not import this file.'); }
@@ -573,7 +523,6 @@ loadMarket();
 source = 'binance';
 loadMarket();
 const timer = setInterval(() => {
-  el('clock').textContent = new Date().toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }) + ' UTC';
   if (!running || imported || source !== 'demo' || displayedSource !== 'demo') return;
   const last = chart.store.candles[chart.store.candles.length - 1];
   const close = Math.max(0.000001, last.close * (1 + (Math.random() - 0.48) * 0.00055));
@@ -582,7 +531,7 @@ const timer = setInterval(() => {
     ? { time: last.time + interval.ms, open: last.close, high: Math.max(last.close, close), low: Math.min(last.close, close), close, volume: 5 + Math.random() * 10 }
     : { ...last, close, high: Math.max(last.high, close), low: Math.min(last.low, close), volume: last.volume + Math.random() * 4 };
   chart.update(next);
-  refreshQuote();
+  aiWorkspace.datasetChanged();
 }, 1000);
 
 let resumeOnPageShow = false;
@@ -595,6 +544,6 @@ const pageShow = (event: PageTransitionEvent) => {
 window.addEventListener('pagehide', pageHide);
 window.addEventListener('pageshow', pageShow);
 if (import.meta.hot) import.meta.hot.dispose(() => {
-  stopFeed(); stopHistory(); clearInterval(timer); clearTimeout(toastTimer); chart.destroy();
+  stopFeed(); stopHistory(); clearInterval(timer); clearTimeout(toastTimer); destroyWorkspaceSplit(); aiWorkspace.destroy(); chart.destroy();
   window.removeEventListener('pagehide', pageHide); window.removeEventListener('pageshow', pageShow);
 });

@@ -23,7 +23,7 @@ test('packed library installs outside this repository and exposes valid ESM, CSS
     assert.deepEqual(installed.dependencies ?? {}, {});
     const script = `
       import assert from 'node:assert/strict';
-      import { createChart, ChartEngine, DRAWING_KINDS, restoreDrawings } from 'liquid-chart';
+      import { createChart, ChartEngine, DRAWING_KINDS, restoreDrawings, validateIndicatorOutput } from 'liquid-chart';
       import { CandleStore } from 'liquid-chart/model';
       import { createHistoryPager } from 'liquid-chart/history';
       assert.equal(typeof document, 'undefined');
@@ -31,6 +31,8 @@ test('packed library installs outside this repository and exposes valid ESM, CSS
       assert.equal(typeof ChartEngine, 'function');
       assert.equal(DRAWING_KINDS.length, 21);
       assert.deepEqual(restoreDrawings(null), []);
+      assert.deepEqual(validateIndicatorOutput({panes:[],series:[]}), {panes:[],series:[]});
+      for (const method of ['setIndicator','removeIndicator','clearIndicators']) assert.equal(typeof ChartEngine.prototype[method], 'function');
       const store = new CandleStore();
       store.setData([{time: 1000, open: 1, high: 3, low: 1, close: 2, volume: 0}]);
       assert.equal(store.candles.length, 1);
@@ -40,12 +42,16 @@ test('packed library installs outside this repository and exposes valid ESM, CSS
     `;
     run(process.execPath, ['--input-type=module', '-e', script], directory);
     await writeFile(join(directory, 'consumer.ts'), `
-      import { createChart, type Candle, type ChartState } from 'liquid-chart';
+      import { createChart, type Candle, type ChartState, type IndicatorOutput } from 'liquid-chart';
       import { CandleStore } from 'liquid-chart/model';
       import { createHistoryPager, type HistoryPagerOptions } from 'liquid-chart/history';
       const chart = createChart(document.createElement('div'), {priceScale: 'log'});
       const candles: Candle[] = [{time: 1000,open:1,high:3,low:1,close:2,volume:0}];
       chart.setData(candles); chart.setTool('fib'); chart.setMagnet('weak');
+      const output: IndicatorOutput = {panes:[{id:'custom',title:'Custom'}],series:[{id:'value',name:'Value',paneId:'custom',type:'line',color:'#abcdef',points:[{time:1000,value:null}]}]};
+      chart.setIndicator('custom-program', output); chart.removeIndicator('custom-program'); chart.clearIndicators();
+      const cloud: IndicatorOutput = {panes:[],series:[{id:'band',name:'Band',paneId:'price',type:'band',color:'#00ff00',negativeColor:'#ff0000',offset:26,points:[{time:1000,value:1,value2:2}]}]};
+      chart.setIndicator('custom-band', cloud);
       const unsubscribe = chart.subscribe((state: ChartState) => console.log(state.firstVisibleIndex));
       const store = new CandleStore(); store.setData(candles);
       const options: HistoryPagerOptions = {oldestTime:()=>1000,fetchPage:async()=>[],prepend:c=>chart.prependData(c),onStatus:()=>{}};

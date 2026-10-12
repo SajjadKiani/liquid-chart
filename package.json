@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "node scripts/dev.mjs",
+    "dev:demo": "vite --host 127.0.0.1",
+    "dev:api": "node --env-file-if-exists=.env --experimental-strip-types server/index.ts",
     "build": "npm run typecheck && npm run build:lib && npm run build:demo",
     "preview": "vite preview --host 127.0.0.1 --outDir demo-dist",
     "test": "npm run build:lib && node --experimental-strip-types --test tests/*.test.ts tests/package.test.mjs",
@@ -15,6 +17,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "openai": "^7.32.0",
+    "quickjs-emscripten": "^0.32.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
   },
