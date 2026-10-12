@@ -48,6 +48,9 @@ Use file tools for string literals, error messages, configuration values, and no
 | File | Responsibility |
 | --- | --- |
 | `src/model.ts` | Candle validation and storage, scales, coordinate math, time lookup, and moving averages. Keep it free of DOM and browser dependencies. |
+| `src/drawings.ts` | Validated drawing storage, paths/labels, hit testing, move/resize geometry, and undo history. |
+| `src/drawing-tools.ts` | Supported drawing catalogue and grouped toolbar metadata. |
+| `src/magnet.ts` | Pure CSS-pixel OHLC anchor snapping for linear/log scales. |
 | `src/engine.ts` | Canvas rendering, viewport management, input handling, redraw scheduling, drawing geometry, and chart subscriptions. |
 | `src/drawings.ts` | Pure drawing validation, geometry, hit testing, resize/move behavior, and bounded undo history. |
 | `src/demo.ts` | Synthetic instruments, timeframes, and reproducible sample history. |
@@ -104,7 +107,7 @@ Indicator calculations must handle warmup periods and missing data explicitly. I
 
 The simulator updates every second and creates a candle every 10 seconds, advancing by the selected timeframe. Timestamps can move into the future. Only the selected demo market streams; demo timeframes generate separate histories rather than resampling a shared feed.
 
-Binance public spot candles are connected, with the latest 1,000 bars loaded and refreshed on reconnect. Panning left fetches older pages until available history ends. Loaded pages remain in session memory and are not capped by the import limit. Pagination does not automatically recover internal gaps from outages longer than the reconnect snapshot. There is no backend, broker, account system, or order execution. Drawing tools support lines, rectangles, brush, selection, moving/resizing, styling, deletion, and undo/redo. Undo history is session-only and resets on dataset changes; drawings are limited to 1,000 per chart with at most 2,000 points per brush stroke. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
+Binance public spot candles are connected, with the latest 1,000 bars loaded and refreshed on reconnect. Panning left fetches older pages until available history ends. Loaded pages remain in session memory and are not capped by the import limit. Pagination does not automatically recover internal gaps from outages longer than the reconnect snapshot. There is no backend, broker, account system, or order execution. Drawing tools support 21 tools in grouped menus, selection, moving/resizing, styling, deletion, and undo/redo. Off/Weak/Strong magnet modes snap geometric anchors to OHLC; Alt bypasses snapping. Freehand strokes and whole-shape movement remain free. Channels, pitchforks, Gann, forecasting/positions, volume profiles, advanced Fibonacci tools, text, and drawing locks are not implemented. Undo history is session-only and resets on dataset changes; drawings are limited to 1,000 per chart with at most 2,000 points per brush stroke. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
 
 Treat these as documented limitations, not completed capabilities. Update `README.md` and relevant UI guidance when implementing or changing them.
 

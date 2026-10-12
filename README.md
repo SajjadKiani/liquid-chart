@@ -28,7 +28,8 @@ npm run preview
 - Visible-range rendering and automatic price scaling; high-DPI canvas buffers.
 - Two-axis pointer panning, cursor-anchored wheel zoom, price/time axis drag and wheel zoom, crosshair and OHLC readout.
 - Watchlist, search, demo timeframe switching, and live/pause controls.
-- Trendlines, horizontal/vertical lines, rectangles, and freehand brush strokes, anchored to time/price.
+- 21 drawing tools in grouped flyout menus: lines, Fibonacci, brushes, arrows, shapes, and measurements, anchored to time/price.
+- Off/Weak/Strong magnet snapping to candle OHLC, with a snap marker, temporary Alt bypass, and a saved mode preference.
 - Drawing selection, moving, resize handles, deletion, color/width controls, and undo/redo.
 - Per-demo-market/timeframe drawings and chart colors/options saved in localStorage.
 - Separate up/down candle body and border colors in Style, with saved preferences and a default-color reset.
@@ -44,15 +45,20 @@ Focus the chart: Left/Right move time, Up/Down move prices, + / - zoom, Home fol
 
 ### Drawing tools
 
-Choose a tool from the left toolbar:
+Open a category in the left toolbar:
 
-- **Trendline**: drag between endpoints, or click a start point and an end point.
-- **Horizontal level**: click a price; the line spans the chart.
-- **Vertical line**: click a time; the line spans the price panel.
-- **Rectangle**: drag between corners, or click two opposite corners.
-- **Brush**: hold and drag to draw a freehand stroke.
+- **Lines**: trendline, ray, extended line, info line, horizontal line/ray, vertical line, and crossline.
+- **Fibonacci**: retracement (0, 0.236, 0.382, 0.5, 0.618, 0.786, 1) and time zones (0, 1, 2, 3, 5, 8, 13, 21).
+- **Brushes**: freehand brush and translucent highlighter. Drag to draw.
+- **Arrows**: two-anchor arrow and one-click up/down markers.
+- **Shapes**: rectangle, ellipse, and circle. Circle anchors define its center and radius.
+- **Measures**: price range, elapsed date range, and combined date/price range. Price measurements show signed change and percentage; a zero starting price displays an undefined percentage.
 
-Completing a drawing returns to the cursor and selects the new shape. With the cursor tool, click a stroke or a rectangle's interior to select it, then drag to move it. Drag the visible handles to resize lines and rectangles or stretch a brush's bounding box. Horizontal levels move only vertically; vertical lines move only horizontally. Shift-drag pans through drawings. Click blank chart space to deselect. Escape cancels an unfinished stroke/edit, removes selection, and returns to the cursor.
+Horizontal lines/rays, vertical lines, crosslines, and up/down arrow marks need one click. Other geometric tools support dragging or two clicks. Menu Up/Down/Home/End moves focus; Enter selects, and Escape closes the menu. All listed tools support the existing selection, editing, styling, persistence, and undo workflow. Fibonacci retracement levels interpolate actual prices and then project to the active scale. Time zones use elapsed UTC time, so missing sessions may result in uneven bar spacing.
+
+**Magnet** opens Off/Weak/Strong choices. Weak snaps within 12 CSS pixels of the nearest candle's open, high, low, or close. Strong always chooses the nearest visible OHLC price of the nearest candle. A gold circle and OHLC label preview the snap. Hold Alt while placing/resizing an anchor to bypass snapping. Freehand strokes and whole-shape movement stay free; snapping does not distort an existing shape during translation. Candle-free past/future slots remain available for unsnapped drawings. The mode persists separately from drawings and works with linear/log scales and paginated history.
+
+Completing a drawing returns to the cursor and selects the new shape. With the cursor tool, click a stroke or a filled shape's interior to select it, then drag to move it. Drag the visible handles to resize lines and rectangles or stretch a brush's bounding box. Horizontal levels move only vertically; vertical lines move only horizontally. Shift-drag pans through drawings. Click blank chart space to deselect. Escape cancels an unfinished stroke/edit, removes selection, and returns to the cursor.
 
 **Delete selected** or Delete/Backspace removes one drawing. The trash button clears the current chart's drawings. Undo/redo buttons, Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl/Cmd+Y restore drawing changes. Each completed stroke or drag is one undo step. The latest 50 drawing actions are retained for the current dataset session; switching datasets or reloading resets undo history. These shortcuts apply while the chart is focused.
 
@@ -118,7 +124,9 @@ Import a JSON array:
 ## Extend
 
 - `src/model.ts`: pure data store, validation, scales, moving average, time lookup.
-- `src/drawings.ts`: drawing validation, projection, hit testing, move/resize geometry, and undo history.
+- `src/drawings.ts`: drawing validation, paths/labels, hit testing, move/resize geometry, and undo history.
+- `src/drawing-tools.ts`: supported tool catalogue and grouped menu metadata.
+- `src/magnet.ts`: pure OHLC snapping in CSS-pixel coordinates.
 - `src/engine.ts`: rendering, viewport, interaction, redraw scheduling, drawing anchors.
 - `src/demo.ts`: sample symbols and deterministic synthetic history.
 - `src/binance.ts`: public REST/WebSocket adapter, validation, buffering, cancellation, and reconnects.
@@ -134,10 +142,12 @@ Use `prependData(candles)` to append earlier history to the left without resetti
 
 Use `configure({ priceScale: 'log' })` or `configure({ priceScale: 'linear' })` to request a scale. `chart.priceScale` and subscription state expose the effective scale; `chart.options.priceScale` retains the preference. `chart.store.supportsLogScale` reports whether the full dataset permits logarithmic scaling.
 
+Use `setMagnet('off' | 'weak' | 'strong')` to configure anchor snapping.
+
 The engine is independent of any UI framework. Add custom renderers beside the candle renderer, share the time/price scale functions, and keep user drawings anchored to market coordinates. A provider adapter should translate vendor data into the Candle contract; do not embed provider secrets in browser code.
 
 ## MVP boundaries
 
-Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, backend, or order execution. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation, selection, moving/resizing, styling, deletion, and session undo/redo; text annotations and drawing locks are not implemented. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
+Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, backend, or order execution. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation, selection, moving/resizing, styling, deletion, and session undo/redo; Specialist tools such as channels, pitchforks, Gann tools, forecasting/positions, volume profiles, and advanced Fibonacci tools are not implemented. Text annotations and drawing locks are not implemented. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
 
-Useful next steps: editable drawings, shared demo resampling, indicator plugins, touch pinch zoom, internal gap recovery, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.
+Useful next steps: additional drawing families, shared demo resampling, indicator plugins, touch pinch zoom, internal gap recovery, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.

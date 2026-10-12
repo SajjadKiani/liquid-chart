@@ -1,5 +1,8 @@
 import { CandleStore, movingAverage, priceRange, priceTicks, priceToY, yToPrice, timeToIndex, indexToTime, zoomRightEdge, scrollPriceRange, timeViewportBounds, zoomPriceRange } from './model.ts';
-import { DrawingHistory, DEFAULT_DRAWING_STYLE, MAX_BRUSH_POINTS, MAX_DRAWINGS, drawingStyle, drawingPoints, drawingHandles, hitDrawing, moveDrawing, resizeDrawing, restoreDrawings } from './drawings.ts';
+import { DrawingHistory, DEFAULT_DRAWING_STYLE, MAX_BRUSH_POINTS, MAX_DRAWINGS, drawingStyle, drawingPaths, drawingLabels, drawingHandles, hitDrawing, moveDrawing, resizeDrawing, restoreDrawings } from './drawings.ts';
+import { freehand, singlePoint, boxShape } from './drawing-tools.ts';
+import { snapToCandle } from './magnet.ts';
+import type { MagnetMode, Snap } from './magnet.ts';
 import type { Projection, Handle } from './drawings.ts';
 import type { Anchor, Candle, Drawing, Tool, PriceScale } from './model.ts';
 
@@ -33,12 +36,15 @@ export class ChartEngine {
   private cursor: Point | null = null;
   private drag: Gesture | null = null;
   private pending: Anchor | null = null;
-  private sketch: { kind: 'trend' | 'rectangle' | 'brush'; points: Anchor[]; start: Point; last: Point; projection: Projection; moved: boolean } | null = null;
+  private sketch: { kind: Drawing['kind']; points: Anchor[]; start: Point; last: Point; projection: Projection; moved: boolean } | null = null;
   private editing: { drawing: Drawing; before: Drawing[]; start: Point; projection: Projection; handle: Handle | null; moved: boolean } | null = null;
   private selectedId: string | null = null;
   private drawingRange: [number, number] | null = null;
   private drawingHistory = new DrawingHistory();
   drawingStyle = { ...DEFAULT_DRAWING_STYLE };
+  magnet: MagnetMode = 'off';
+  private snap: Snap | null = null;
+  private bypassMagnet = false;
   private frame: Frame | null = null;
   private raf = 0;
   private dirty = true;
@@ -119,6 +125,11 @@ export class ChartEngine {
     this.invalidate();
   }
 
+  setMagnet(mode: MagnetMode): void {
+    if (!['off', 'weak', 'strong'].includes(mode)) return;
+    this.magnet = mode; this.snap = null; this.invalidate(false);
+  }
+
   setTool(tool: Tool): void {
     this.cancelDrawingGesture();
     this.tool = tool;
@@ -185,7 +196,7 @@ export class ChartEngine {
   private cancelDrawingGesture(): void {
     const hadGesture = !!this.editing || !!this.sketch;
     if (this.editing) this.drawings = this.editing.before;
-    this.editing = null; this.sketch = null; this.drawingRange = null;
+    this.editing = null; this.sketch = null; this.drawingRange = null; this.snap = null;
     if (hadGesture) this.invalidate();
   }
 
@@ -315,14 +326,15 @@ export class ChartEngine {
     if (event.button !== 0 || !this.frame) return;
     this.overlay.focus({ preventScroll: true });
     const p = this.point(event);
+    this.bypassMagnet = event.altKey;
     const mode = this.gestureMode(p);
     if (!mode) return;
     this.cursor = p;
     if (this.tool !== 'cursor' && mode === 'pan' && !event.shiftKey) {
       if (this.drawings.length >= MAX_DRAWINGS) return;
-      const anchor = this.anchorAt(this.clampDrawingPoint(p));
-      if (this.tool === 'horizontal' || this.tool === 'vertical') this.addDrawing(this.tool, anchor, anchor);
-      else if (this.pending && this.tool !== 'brush') this.addDrawing(this.tool, this.pending, anchor);
+      const anchor = this.anchorAt(this.clampDrawingPoint(p), event.altKey || freehand(this.tool));
+      if (singlePoint(this.tool)) this.addDrawing(this.tool, anchor, anchor);
+      else if (this.pending && !freehand(this.tool)) this.addDrawing(this.tool, this.pending, anchor);
       else {
         this.sketch = { kind: this.tool, points: [anchor], start: p, last: p, projection: this.projection(true), moved: false };
         this.drawingRange = [this.frame.low, this.frame.high];
@@ -351,24 +363,28 @@ export class ChartEngine {
   private pointerMove = (event: PointerEvent): void => {
     const p = this.point(event);
     this.cursor = p;
+    this.bypassMagnet = event.altKey; this.snap = null;
     this.updatePointerCursor(p);
     if (this.sketch) {
       const q = this.clampDrawingPoint(p);
       this.sketch.moved ||= Math.hypot(p.x - this.sketch.start.x, p.y - this.sketch.start.y) > 3;
-      if (this.sketch.kind === 'brush') {
+      if (freehand(this.sketch.kind)) {
         if (Math.hypot(q.x - this.sketch.last.x, q.y - this.sketch.last.y) >= 2) {
           if (this.sketch.points.length >= MAX_BRUSH_POINTS) this.sketch.points = this.sketch.points.filter((_, i) => i % 2 === 0 || i === MAX_BRUSH_POINTS - 1);
           this.sketch.points.push(this.sketch.projection.anchor(q));
           this.sketch.last = q;
         }
-      } else this.sketch.points[1] = this.sketch.projection.anchor(q);
+      } else this.sketch.points[1] = this.anchorAt(q, event.altKey, this.sketch.projection);
       this.invalidate(false); return;
     }
     if (this.editing) {
       const e = this.editing, dx = p.x - e.start.x, dy = p.y - e.start.y;
       e.moved ||= Math.hypot(dx, dy) > 3;
       if (e.moved) {
-        const next = e.handle ? resizeDrawing(e.drawing, e.handle, this.clampDrawingPoint(p), e.projection) : moveDrawing(e.drawing, dx, dy, e.projection);
+        const q = this.clampDrawingPoint(p);
+        const anchor = e.handle && !freehand(e.drawing.kind) ? this.anchorAt(q, event.altKey, e.projection) : undefined;
+        const snapped = anchor ? e.projection.point(anchor) : q;
+        const next = e.handle ? resizeDrawing(e.drawing, e.handle, snapped, e.projection, anchor) : moveDrawing(e.drawing, dx, dy, e.projection);
         const valid = restoreDrawings([next])[0];
         if (valid) this.drawings = e.before.map(d => d.id === e.drawing.id ? valid : d);
       }
@@ -399,6 +415,7 @@ export class ChartEngine {
         return;
       }
     }
+    if (this.tool !== 'cursor' && !freehand(this.tool) && this.gestureMode(p) === 'pan') this.anchorAt(this.clampDrawingPoint(p), event.altKey);
     this.invalidate(false);
   };
 
@@ -408,16 +425,16 @@ export class ChartEngine {
       const s = this.sketch;
       this.sketch = null;
       if (s.moved) {
-        const end = s.projection.anchor(this.clampDrawingPoint(this.point(event)));
-        if (s.kind === 'brush') {
+        const end = this.anchorAt(this.clampDrawingPoint(this.point(event)), event.altKey || freehand(s.kind), s.projection);
+        if (freehand(s.kind)) {
           if (s.points.length >= MAX_BRUSH_POINTS) s.points = s.points.filter((_, i) => i % 2 === 0 || i === MAX_BRUSH_POINTS - 1);
           s.points.push(end);
-          this.addDrawing('brush', s.points[0], end, s.points);
+          this.addDrawing(s.kind, s.points[0], end, s.points);
         } else this.addDrawing(s.kind, s.points[0], end);
-      } else if (s.kind !== 'brush') this.pending = s.points[0];
+      } else if (!freehand(s.kind)) this.pending = s.points[0];
       this.invalidate(false);
     }
-    this.drawingRange = null;
+    this.drawingRange = null; this.snap = null;
     if (wasDrawing) this.invalidate();
     if (this.editing) {
       const e = this.editing;
@@ -430,7 +447,7 @@ export class ChartEngine {
     this.updatePointerCursor(this.point(event));
   };
   private pointerCancel = (): void => { this.drag = null; this.cancelDrawingGesture(); this.updatePointerCursor(this.cursor ?? undefined); this.invalidate(false); };
-  private pointerLeave = (): void => { if (!this.drag && !this.sketch && !this.editing) { this.cursor = null; this.updatePointerCursor(); this.invalidate(false); } };
+  private pointerLeave = (): void => { if (!this.drag && !this.sketch && !this.editing) { this.cursor = null; this.snap = null; this.updatePointerCursor(); this.invalidate(false); } };
   private wheel = (event: WheelEvent): void => {
     event.preventDefault();
     if (this.sketch || this.editing) return;
@@ -479,8 +496,9 @@ export class ChartEngine {
     }
   };
 
-  private anchorAt(p: Point): Anchor {
-    return this.projection().anchor(p);
+  private anchorAt(p: Point, bypass = this.bypassMagnet, projection = this.projection()): Anchor {
+    this.snap = bypass ? null : snapToCandle(this.store.candles, p, projection, this.magnet);
+    return this.snap?.anchor ?? projection.anchor(p);
   }
 
   private projection(snapshot = false): Projection {
@@ -500,7 +518,7 @@ export class ChartEngine {
   private addDrawing(kind: Drawing['kind'], a: Anchor, b: Anchor, points?: Anchor[]): void {
     if (this.drawings.length >= MAX_DRAWINGS) return;
     const base = { id: crypto.randomUUID(), a, b, ...this.drawingStyle };
-    const drawing: Drawing = kind === 'brush' ? { ...base, kind, points: points!.map(p => ({ ...p })) } : { ...base, kind };
+    const drawing: Drawing = kind === 'brush' || kind === 'highlighter' ? { ...base, kind, points: points!.map(p => ({ ...p })) } : { ...base, kind };
     const valid = restoreDrawings([drawing])[0];
     if (!valid) return;
     this.commitDrawings([...this.drawings, valid]);
@@ -618,21 +636,32 @@ export class ChartEngine {
     const f = this.frame;
     if (!f) return;
     const projection = this.projection();
+    if (!this.sketch && !this.editing && this.cursor && this.tool !== 'cursor' && !freehand(this.tool) && this.gestureMode(this.cursor) === 'pan') this.anchorAt(this.clampDrawingPoint(this.cursor));
     const draw = (drawing: Drawing, preview = false) => {
-      const points = drawingPoints(drawing, projection);
-      if (!points.length) return;
+      const paths = drawingPaths(drawing, projection);
+      if (!paths.length) return;
+      const all = paths.flat();
+      if (all.every(p => p.x < 0) || all.every(p => p.x > f.width) || all.every(p => p.y < 18) || all.every(p => p.y > f.priceBottom)) return;
       const style = drawingStyle(drawing);
-      ctx.strokeStyle = style.color; ctx.lineWidth = style.width;
+      ctx.strokeStyle = style.color; ctx.lineWidth = drawing.kind === 'highlighter' ? style.width * 8 : style.width;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.setLineDash(preview ? [5, 4] : []);
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (const p of points.slice(1)) ctx.lineTo(p.x, p.y);
-      if (drawing.kind === 'rectangle') { ctx.fillStyle = style.color; ctx.globalAlpha = 0.09; ctx.fill(); ctx.globalAlpha = 1; }
-      ctx.stroke(); ctx.setLineDash([]);
-      if (drawing.id === this.selectedId || preview && drawing.kind !== 'brush') {
+      ctx.globalAlpha = drawing.kind === 'highlighter' ? 0.3 : 1;
+      for (const points of paths) {
+        ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+        for (const p of points.slice(1)) ctx.lineTo(p.x, p.y);
+        if (boxShape(drawing.kind) || drawing.kind === 'circle') { ctx.fillStyle = style.color; ctx.globalAlpha = 0.09; ctx.fill(); ctx.globalAlpha = 1; }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1; ctx.setLineDash([]);
+      ctx.font = '11px "SFMono-Regular", Consolas, monospace'; ctx.fillStyle = style.color;
+      for (const label of drawingLabels(drawing, projection)) if (Number.isFinite(label.point.x) && Number.isFinite(label.point.y) && (drawing.kind !== 'fib' || label.point.y >= 18 && label.point.y <= f.priceBottom)) {
+        const w = ctx.measureText(label.text).width;
+        ctx.fillText(label.text, Math.max(4, Math.min(f.width - w - 4, label.point.x)), Math.max(30, Math.min(f.priceBottom - 4, label.point.y)));
+      }
+      if (drawing.id === this.selectedId || preview && !freehand(drawing.kind)) {
         const handles = drawingHandles(drawing, projection);
-        if (drawing.kind === 'brush' && handles.length) {
+        if (freehand(drawing.kind) && handles.length) {
           const a = handles[0].point, b = handles[1].point;
           ctx.lineWidth = 1; ctx.setLineDash([3, 4]); ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.setLineDash([]);
         }
@@ -647,8 +676,14 @@ export class ChartEngine {
     for (const drawing of this.drawings) draw(drawing);
     if (this.sketch) {
       const s = this.sketch, base = { id: 'preview', a: s.points[0], b: s.points.at(-1)!, ...this.drawingStyle };
-      draw(s.kind === 'brush' ? { ...base, kind: 'brush', points: s.points } : { ...base, kind: s.kind }, true);
-    } else if (this.pending && this.cursor && (this.tool === 'trend' || this.tool === 'rectangle')) draw({ id: 'preview', kind: this.tool, a: this.pending, b: this.anchorAt(this.clampDrawingPoint(this.cursor)), ...this.drawingStyle }, true);
+      draw(s.kind === 'brush' || s.kind === 'highlighter' ? { ...base, kind: s.kind, points: s.points } : { ...base, kind: s.kind as Exclude<Drawing['kind'], 'brush' | 'highlighter'> }, true);
+    } else if (this.pending && this.cursor && this.tool !== 'cursor' && !freehand(this.tool)) draw({ id: 'preview', kind: this.tool as Exclude<Drawing['kind'], 'brush' | 'highlighter'>, a: this.pending, b: this.anchorAt(this.clampDrawingPoint(this.cursor)), ...this.drawingStyle }, true);
+    if (this.snap) {
+      ctx.strokeStyle = '#e6c17a'; ctx.lineWidth = 2; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(this.snap.point.x, this.snap.point.y, 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.font = '10px sans-serif'; ctx.fillStyle = '#e6c17a';
+      ctx.fillText(this.snap.field.toUpperCase(), Math.min(f.width - 40, this.snap.point.x + 11), Math.max(30, this.snap.point.y - 10));
+    }
     ctx.restore();
     const p = this.cursor;
     if (!p || p.x > f.width || p.x < 0 || p.y > f.bottom || p.y < 0) return;

@@ -9,7 +9,7 @@ export type Candle = {
 
 export type Anchor = { time: number; price: number };
 export type Drawing = { id: string; a: Anchor; b: Anchor; color?: string; width?: number } &
-  ({ kind: 'trend' | 'horizontal' | 'vertical' | 'rectangle'; points?: never } | { kind: 'brush'; points: Anchor[] });
+  ({ kind: 'trend' | 'ray' | 'extended' | 'info' | 'horizontal' | 'horizontal-ray' | 'vertical' | 'crossline' | 'fib' | 'fib-time' | 'arrow' | 'arrow-up' | 'arrow-down' | 'rectangle' | 'ellipse' | 'circle' | 'price-range' | 'date-range' | 'range'; points?: never } | { kind: 'brush' | 'highlighter'; points: Anchor[] });
 export type Tool = 'cursor' | Drawing['kind'];
 export type PriceScale = 'linear' | 'log';
 
