@@ -49,6 +49,7 @@ Use file tools for string literals, error messages, configuration values, and no
 | --- | --- |
 | `src/model.ts` | Candle validation and storage, scales, coordinate math, time lookup, and moving averages. Keep it free of DOM and browser dependencies. |
 | `src/engine.ts` | Canvas rendering, viewport management, input handling, redraw scheduling, drawing geometry, and chart subscriptions. |
+| `src/drawings.ts` | Pure drawing validation, geometry, hit testing, resize/move behavior, and bounded undo history. |
 | `src/demo.ts` | Synthetic instruments, timeframes, and reproducible sample history. |
 | `src/binance.ts` | Public Binance REST/WebSocket adapter, validation, buffering, lifecycle, and reconnects. |
 | `src/history.ts` | Provider-independent older-history pagination, cancellation, retry, and end-of-history state. |
@@ -83,6 +84,7 @@ When adding a market-data provider, create a separate adapter that produces the 
 - Prepending history must preserve candle pixel positions and active drag anchors. Validate a page atomically and keep overlaps from overwriting live candles. Use `firstVisibleIndex` subscription state for earlier-history loading; allow one request per pager and cancel it on dataset changes.
 - Keep historical views stable when inserting older data. Incoming live bars must not force a user browsing history back to the latest candle.
 - Store drawing anchors as timestamps and prices, never screen pixels or unstable array indexes.
+- Keep committed drawing objects immutable so undo snapshots can share unchanged shapes. Treat a completed stroke or edit drag as one action; cancelled edits restore the original. Preserve legacy trendline/horizontal storage and validate brush points/styles on restore.
 - Preserve keyboard navigation and pointer capture behavior. Cancel gestures cleanly and avoid hijacking shortcuts while users are typing.
 - Clean up observers, subscriptions, animation frames, event listeners, and timers when destroying or replacing chart/UI instances.
 
@@ -102,7 +104,7 @@ Indicator calculations must handle warmup periods and missing data explicitly. I
 
 The simulator updates every second and creates a candle every 10 seconds, advancing by the selected timeframe. Timestamps can move into the future. Only the selected demo market streams; demo timeframes generate separate histories rather than resampling a shared feed.
 
-Binance public spot candles are connected, with the latest 1,000 bars loaded and refreshed on reconnect. Panning left fetches older pages until available history ends. Loaded pages remain in session memory and are not capped by the import limit. Pagination does not automatically recover internal gaps from outages longer than the reconnect snapshot. There is no backend, broker, account system, or order execution. Drawing tools support creation and clearing, but not selection/editing. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
+Binance public spot candles are connected, with the latest 1,000 bars loaded and refreshed on reconnect. Panning left fetches older pages until available history ends. Loaded pages remain in session memory and are not capped by the import limit. Pagination does not automatically recover internal gaps from outages longer than the reconnect snapshot. There is no backend, broker, account system, or order execution. Drawing tools support lines, rectangles, brush, selection, moving/resizing, styling, deletion, and undo/redo. Undo history is session-only and resets on dataset changes; drawings are limited to 1,000 per chart with at most 2,000 points per brush stroke. Touch supports dragging and single-pointer drawing, but not pinch zoom. The moving average currently recalculates over loaded history on each update.
 
 Treat these as documented limitations, not completed capabilities. Update `README.md` and relevant UI guidance when implementing or changing them.
 

@@ -4,12 +4,19 @@ import type { ChartOptions } from './engine.ts';
 import { generateCandles, instruments, intervals } from './demo.ts';
 import { binanceSymbols, connectBinance, fetchBinanceOlder } from './binance.ts';
 import { createHistoryPager } from './history.ts';
+import { drawingStyle, restoreDrawings } from './drawings.ts';
 import type { Drawing, Tool } from './model.ts';
 
 const icons: Record<string, string> = {
   cursor: '<path d="m5 3 13 9-7 1-3 7z"/>',
   trend: '<path d="m4 17 16-12"/><circle cx="4" cy="17" r="2"/><circle cx="20" cy="5" r="2"/>',
   horizontal: '<path d="M3 12h18"/><circle cx="12" cy="12" r="2"/>',
+  vertical: '<path d="M12 3v18"/><circle cx="12" cy="12" r="2"/>',
+  rectangle: '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 5h2m12 14h2"/>',
+  brush: '<path d="m14 4 6 6-9 9-5-5zM6 14c-4 1-2 5-4 6 4 1 8-1 9-3"/>',
+  undo: '<path d="M9 5 4 10l5 5M4 10h10a6 6 0 0 1 6 6v3"/>',
+  redo: '<path d="m15 5 5 5-5 5M20 10h-10a6 6 0 0 0-6 6v3"/>',
+  remove: '<path d="M5 5h14v14H5zM9 9l6 6m0-6-6 6"/>',
   reset: '<path d="M4 10a8 8 0 1 1 2 8M4 4v6h6"/>',
   settings: '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
   download: '<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',
@@ -59,10 +66,16 @@ app.innerHTML = `
         </div>
         <div class="chart-body">
           <div class="drawing-toolbar" aria-label="Drawing tools">
-            <button data-tool="cursor" class="tool-button active" aria-label="Cursor and pan tool" aria-pressed="true" title="Cursor / pan">${icon('cursor')}</button>
-            <button data-tool="trend" class="tool-button" aria-label="Draw trendline using two clicks" aria-pressed="false" title="Trendline · click two points">${icon('trend')}</button>
+            <button data-tool="cursor" class="tool-button active" aria-label="Cursor and pan tool" aria-pressed="true" title="Cursor / select / pan">${icon('cursor')}</button>
+            <button data-tool="trend" class="tool-button" aria-label="Draw trendline" aria-pressed="false" title="Trendline · drag or click two points">${icon('trend')}</button>
             <button data-tool="horizontal" class="tool-button" aria-label="Draw horizontal price level" aria-pressed="false" title="Horizontal level">${icon('horizontal')}</button>
+            <button data-tool="vertical" class="tool-button" aria-label="Draw vertical time line" aria-pressed="false" title="Vertical line · click once">${icon('vertical')}</button>
+            <button data-tool="rectangle" class="tool-button" aria-label="Draw rectangle" aria-pressed="false" title="Rectangle · drag or click two corners">${icon('rectangle')}</button>
+            <button data-tool="brush" class="tool-button" aria-label="Freehand brush" aria-pressed="false" title="Brush · drag to draw">${icon('brush')}</button>
             <span class="tool-divider"></span>
+            <button id="undo-drawing" class="tool-button" aria-label="Undo drawing change" title="Undo drawing · Ctrl/Cmd+Z" disabled>${icon('undo')}</button>
+            <button id="redo-drawing" class="tool-button" aria-label="Redo drawing change" title="Redo drawing · Ctrl/Cmd+Shift+Z" disabled>${icon('redo')}</button>
+            <button id="delete-drawing" class="tool-button" aria-label="Delete selected drawing" title="Delete selected drawing · Delete" disabled>${icon('remove')}</button>
             <button id="clear-drawings" class="tool-button" aria-label="Clear drawings for this chart" title="Clear drawings">${icon('trash')}</button>
             <div class="tool-spacer"></div>
             <button id="reset-view" class="tool-button" aria-label="Reset chart view" title="Reset view">${icon('reset')}</button>
@@ -87,6 +100,9 @@ app.innerHTML = `
             <label class="check-setting"><span>Volume bars</span><input id="volume-toggle" type="checkbox" checked /></label>
             <label class="check-setting"><span>Moving average</span><input id="ma-setting" type="checkbox" checked /></label>
             <button id="restore-colors" class="secondary-button">Restore default colors</button>
+            <p id="drawing-selection" class="drawing-section-label">New drawings</p>
+            <label class="color-setting">Drawing color <input type="color" id="drawing-color" value="#9aaef5" /></label>
+            <label class="scale-setting"><span>Drawing width</span><select id="drawing-width"><option value="1">1 px</option><option value="1.5">1.5 px</option><option value="2" selected>2 px</option><option value="3">3 px</option><option value="4">4 px</option><option value="6">6 px</option></select></label>
           </div>
         </div>
         <footer class="chart-footer"><span id="interaction-hint">Drag plot to pan · Drag axes to zoom</span><span id="bar-count"></span><button id="auto-price" class="scale-toggle active" aria-label="Automatically fit price range" aria-pressed="true" title="Fit visible prices · A">Auto</button><button id="log-toggle" class="scale-toggle" aria-label="Logarithmic price scale" aria-pressed="false" title="Log scale: equal percentage changes have equal vertical spacing">Log</button><span>UTC</span></footer>
@@ -100,7 +116,7 @@ app.innerHTML = `
   </div>
   <input id="file-input" type="file" accept="application/json,.json" hidden />
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">QUICK GUIDE</span><button id="help-close" aria-label="Close help">×</button></div><h2>Find your perspective.</h2><dl><dt>Pan & zoom</dt><dd>Drag the chart to move time and price together. Pan past the latest candle to reveal space on its right. Scroll to zoom; Shift-scroll moves time. Drag up/down or scroll on the right price axis to zoom vertically. Drag right/left or scroll on the bottom time axis to zoom horizontally. Alt-scroll on the plot moves prices. Double-click an axis to reset it. Auto fits visible prices again. Double-click resets both axes.</dd><dt>Price scale</dt><dd>Use Log in the chart footer or Style → Price scale. Equal percentage moves have equal vertical spacing. Log mode requires positive prices; zero or negative data uses the linear scale.</dd><dt>Drawing tools</dt><dd>Select a trendline and click two points. Select a price level and click once. Escape returns to the cursor. Drawings are saved for each market and timeframe in this browser.</dd><dt>Keyboard</dt><dd>Focus the chart: ← / → move time, ↑ / ↓ move prices, + / − zoom, Home follows the latest candle, and A fits prices.</dd><dt>Your data</dt><dd>Import a JSON array of candles with time (UTC milliseconds), open, high, low, close, and optional volume. Imports pause the simulation.</dd><dt>Market data</dt><dd>Select Binance spot for live USDT candles, or Demo for synthetic candles. Pause stops live updates; resume refreshes history. Pan left to load earlier Binance candles in pages. Only the selected market streams. Binance access depends on your network.</dd><dt>Live demo</dt><dd>Demo prices are synthetic. The accelerated simulator updates every second and opens a new candle every 10 seconds. This is not an exchange feed.</dd></dl></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">QUICK GUIDE</span><button id="help-close" aria-label="Close help">×</button></div><h2>Find your perspective.</h2><dl><dt>Pan & zoom</dt><dd>Drag the chart to move time and price together. Pan past the latest candle to reveal space on its right. Scroll to zoom; Shift-scroll moves time. Drag up/down or scroll on the right price axis to zoom vertically. Drag right/left or scroll on the bottom time axis to zoom horizontally. Alt-scroll on the plot moves prices. Double-click an axis to reset it. Auto fits visible prices again. Double-click resets both axes.</dd><dt>Price scale</dt><dd>Use Log in the chart footer or Style → Price scale. Equal percentage moves have equal vertical spacing. Log mode requires positive prices; zero or negative data uses the linear scale.</dd><dt>Drawing tools</dt><dd>Trendlines and rectangles support dragging or two clicks. Horizontal and vertical lines need one click. Drag the brush to draw freely. The cursor selects drawings; drag to move or use handles to resize. Shift-drag pans through shapes. Delete removes a selected drawing; Ctrl/Cmd+Z undoes and Ctrl/Cmd+Shift+Z redoes. Style controls drawing color and width. Escape cancels an unfinished edit. Drawings are saved per market/timeframe; imported drawings are session-only.</dd><dt>Keyboard</dt><dd>Focus the chart: ← / → move time, ↑ / ↓ move prices, + / − zoom, Home follows the latest candle, and A fits prices.</dd><dt>Your data</dt><dd>Import a JSON array of candles with time (UTC milliseconds), open, high, low, close, and optional volume. Imports pause the simulation.</dd><dt>Market data</dt><dd>Select Binance spot for live USDT candles, or Demo for synthetic candles. Pause stops live updates; resume refreshes history. Pan left to load earlier Binance candles in pages. Only the selected market streams. Binance access depends on your network.</dd><dt>Live demo</dt><dd>Demo prices are synthetic. The accelerated simulator updates every second and opens a new candle every 10 seconds. This is not an exchange feed.</dd></dl></dialog>
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -138,16 +154,11 @@ const drawingKey = () => displayedSource === 'binance'
   ? `liquidchart.drawings.binance.${binanceSymbols[displayedSelected]}.${displayedInterval.label}`
   : `chartroom.drawings.${imported ? 'custom' : instruments[displayedSelected].symbol}.${displayedInterval.label}`;
 function loadDrawings(): void {
-  const value = readStorage(drawingKey());
-  const anchorValid = (a: unknown): boolean => {
-    if (!a || typeof a !== 'object') return false;
-    const p = a as Record<string, unknown>;
-    return typeof p.time === 'number' && Number.isFinite(p.time) && typeof p.price === 'number' && Number.isFinite(p.price);
-  };
-  const drawings = Array.isArray(value) ? value.filter(d => d && typeof d.id === 'string' && ['trend', 'horizontal'].includes(d.kind) && anchorValid(d.a) && anchorValid(d.b)).slice(0, 1000) as Drawing[] : [];
-  chart.setDrawings(drawings);
+  chart.setDrawings(restoreDrawings(readStorage(drawingKey())));
 }
 chart.onDrawingsChange = drawings => { if (!imported) saveStorage(drawingKey(), drawings); };
+const drawingPreferences = readStorage('liquidchart.drawingStyle');
+if (drawingPreferences && typeof drawingPreferences === 'object') chart.setDrawingStyle(drawingPreferences as Partial<{ color: string; width: number }>);
 
 function saveOptions(): void { saveStorage('chartroom.options', chart.options); }
 function syncScale(): void {
@@ -351,14 +362,26 @@ chart.subscribe(state => {
   } else el('ohlc').textContent = '';
   el('bar-count').textContent = `${chart.store.candles.length.toLocaleString()} bars`;
   el('drawing-count').textContent = String(state.drawings);
+  el<HTMLButtonElement>('delete-drawing').disabled = !state.selectedDrawing;
+  el<HTMLButtonElement>('clear-drawings').disabled = state.drawings === 0;
+  el<HTMLButtonElement>('undo-drawing').disabled = !state.canUndo;
+  el<HTMLButtonElement>('redo-drawing').disabled = !state.canRedo;
+  const style = state.selectedDrawing ? drawingStyle(state.selectedDrawing) : chart.drawingStyle;
+  el<HTMLInputElement>('drawing-color').value = style.color;
+  el<HTMLSelectElement>('drawing-width').value = String(style.width);
+  el('drawing-selection').textContent = state.selectedDrawing ? `Selected ${state.selectedDrawing.kind === 'trend' ? 'trendline' : state.selectedDrawing.kind}` : 'New drawings';
   el('follow').classList.toggle('following', state.following);
   el('follow').setAttribute('aria-pressed', String(state.following));
   document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach(button => {
     const active = button.dataset.tool === state.tool;
     button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
   });
-  const hint = state.tool === 'trend' ? 'Trendline: click a start point, then an end point · Esc to finish'
+  const hint = state.tool === 'trend' ? 'Trendline: drag or click two points · Esc to cancel'
     : state.tool === 'horizontal' ? 'Price level: click anywhere on the price chart · Esc to finish'
+    : state.tool === 'vertical' ? 'Vertical line: click a time on the chart · Esc to cancel'
+    : state.tool === 'rectangle' ? 'Rectangle: drag or click two corners · Esc to cancel'
+    : state.tool === 'brush' ? 'Brush: drag to draw freely · Esc to cancel'
+    : state.selectedDrawing ? 'Drag to move · Handles resize · Delete removes · Shift-drag pans'
     : !state.autoPrice ? 'Manual price range · Auto fits visible prices'
     : state.following ? 'Drag plot to pan · Drag axes to zoom'
     : 'Browsing history · Go to latest to resume following';
@@ -373,6 +396,13 @@ document.querySelectorAll<HTMLButtonElement>('[data-interval]').forEach(button =
 }));
 document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach(button => button.addEventListener('click', () => chart.setTool(button.dataset.tool as Tool)));
 el('clear-drawings').addEventListener('click', () => { chart.clearDrawings(); toast('Drawings cleared for this chart.'); });
+el('delete-drawing').addEventListener('click', () => chart.deleteSelectedDrawing());
+el('undo-drawing').addEventListener('click', () => chart.undoDrawing());
+el('redo-drawing').addEventListener('click', () => chart.redoDrawing());
+for (const id of ['drawing-color', 'drawing-width']) el(id).addEventListener('input', () => {
+  chart.setDrawingStyle({ color: el<HTMLInputElement>('drawing-color').value, width: Number(el<HTMLSelectElement>('drawing-width').value) });
+  saveStorage('liquidchart.drawingStyle', chart.drawingStyle);
+});
 el('reset-view').addEventListener('click', () => chart.resetView());
 el('auto-price').addEventListener('click', () => chart.fitPrices());
 el('follow').addEventListener('click', () => chart.followLatest());

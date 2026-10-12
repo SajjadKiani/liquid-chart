@@ -28,7 +28,8 @@ npm run preview
 - Visible-range rendering and automatic price scaling; high-DPI canvas buffers.
 - Two-axis pointer panning, cursor-anchored wheel zoom, price/time axis drag and wheel zoom, crosshair and OHLC readout.
 - Watchlist, search, demo timeframe switching, and live/pause controls.
-- Trendlines (two clicks) and horizontal levels (one click), anchored to time/price.
+- Trendlines, horizontal/vertical lines, rectangles, and freehand brush strokes, anchored to time/price.
+- Drawing selection, moving, resize handles, deletion, color/width controls, and undo/redo.
 - Per-demo-market/timeframe drawings and chart colors/options saved in localStorage.
 - Separate up/down candle body and border colors in Style, with saved preferences and a default-color reset.
 - Custom chart background and grid colors in Style, applied immediately and saved with preferences.
@@ -40,6 +41,26 @@ npm run preview
 Drag the chart to pan time and price together; drag up/down on the right price axis to zoom prices in/out. Drag right/left on the bottom time axis to zoom time in/out. Pan past the latest candle to reveal space on its right, up to almost a full screen while retaining the last candle. Shift-wheel (or horizontal trackpad scrolling) moves time. Wheel over the price axis zooms prices vertically; wheel over the time axis zooms time horizontally. Scroll up zooms in; scroll down zooms out. Both gestures preserve the price/time under the initial pointer unless a viewport/numeric limit applies. Alt-wheel over the plot moves prices. Ordinary wheel over the plot zooms around the pointer.
 
 Focus the chart: Left/Right move time, Up/Down move prices, + / - zoom, Home follows the last candle, A fits prices, and Escape cancels drawing mode. **Auto** in the footer restores automatic price fitting without moving the time viewport. Vertical scrolling keeps a manual price range during horizontal navigation and live updates; switching scales or datasets restores automatic fitting. Double-click the price axis to fit prices, or the time axis to reset candle spacing and follow latest without changing a manual price range. Double-click the plot or Reset view resets both axes. Go to latest resumes time following while retaining a manual price range. Clearing drawings removes only the current chart's drawings.
+
+### Drawing tools
+
+Choose a tool from the left toolbar:
+
+- **Trendline**: drag between endpoints, or click a start point and an end point.
+- **Horizontal level**: click a price; the line spans the chart.
+- **Vertical line**: click a time; the line spans the price panel.
+- **Rectangle**: drag between corners, or click two opposite corners.
+- **Brush**: hold and drag to draw a freehand stroke.
+
+Completing a drawing returns to the cursor and selects the new shape. With the cursor tool, click a stroke or a rectangle's interior to select it, then drag to move it. Drag the visible handles to resize lines and rectangles or stretch a brush's bounding box. Horizontal levels move only vertically; vertical lines move only horizontally. Shift-drag pans through drawings. Click blank chart space to deselect. Escape cancels an unfinished stroke/edit, removes selection, and returns to the cursor.
+
+**Delete selected** or Delete/Backspace removes one drawing. The trash button clears the current chart's drawings. Undo/redo buttons, Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl/Cmd+Y restore drawing changes. Each completed stroke or drag is one undo step. The latest 50 drawing actions are retained for the current dataset session; switching datasets or reloading resets undo history. These shortcuts apply while the chart is focused.
+
+Under **Style → Drawing color / Drawing width**, choose defaults for new drawings, or edit the selected drawing. Stroke widths range from 1 to 6 CSS pixels. Chart/candle color reset is separate from drawing style. Demo and Binance drawings persist by source, market, and timeframe; imported-dataset drawings are session-only. Old saved trendlines and horizontal levels remain compatible.
+
+Drawing geometry uses time/price anchors, including interpolated times and space past the latest candle. Shapes reproject on pan, zoom, resizing, scale changes, and history pagination. Log mode hides shapes with non-positive price anchors while retaining them for linear mode; vertical lines depend only on time. During a drawing/edit gesture, automatic price fitting and live-follow scrolling are held steady. Limit: 1,000 drawings per chart. Long brush strokes are resampled to at most 2,000 points. Drawing JSON is validated on restore; malformed shapes are skipped. Candle JSON exports contain candles only.
+
+With a single imported candle and no measurable interval, drawing times outside that candle use a one-hour interval.
 
 ### Logarithmic price scale
 
@@ -97,6 +118,7 @@ Import a JSON array:
 ## Extend
 
 - `src/model.ts`: pure data store, validation, scales, moving average, time lookup.
+- `src/drawings.ts`: drawing validation, projection, hit testing, move/resize geometry, and undo history.
 - `src/engine.ts`: rendering, viewport, interaction, redraw scheduling, drawing anchors.
 - `src/demo.ts`: sample symbols and deterministic synthetic history.
 - `src/binance.ts`: public REST/WebSocket adapter, validation, buffering, cancellation, and reconnects.
@@ -116,6 +138,6 @@ The engine is independent of any UI framework. Add custom renderers beside the c
 
 ## MVP boundaries
 
-Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, backend, or order execution. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation and clearing, not selection or editing. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
+Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, backend, or order execution. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation, selection, moving/resizing, styling, deletion, and session undo/redo; text annotations and drawing locks are not implemented. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
 
 Useful next steps: editable drawings, shared demo resampling, indicator plugins, touch pinch zoom, internal gap recovery, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.

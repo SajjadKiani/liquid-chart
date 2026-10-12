@@ -8,8 +8,9 @@ export type Candle = {
 };
 
 export type Anchor = { time: number; price: number };
-export type Drawing = { id: string; kind: 'trend' | 'horizontal'; a: Anchor; b: Anchor };
-export type Tool = 'cursor' | 'trend' | 'horizontal';
+export type Drawing = { id: string; a: Anchor; b: Anchor; color?: string; width?: number } &
+  ({ kind: 'trend' | 'horizontal' | 'vertical' | 'rectangle'; points?: never } | { kind: 'brush'; points: Anchor[] });
+export type Tool = 'cursor' | Drawing['kind'];
 export type PriceScale = 'linear' | 'log';
 
 export function validateCandle(value: unknown): Candle {
@@ -201,9 +202,17 @@ export function scrollPriceRange(range: [number, number], offset: number, scale:
 
 export function timeToIndex(candles: Candle[], time: number): number {
   if (!candles.length) return 0;
-  if (candles.length === 1) return 0;
+  if (candles.length === 1) return (time - candles[0].time) / 3_600_000;
   const i = lowerBound(candles, time);
   const a = i === 0 ? 0 : i >= candles.length ? candles.length - 2 : i - 1;
   const b = a + 1;
   return a + (time - candles[a].time) / (candles[b].time - candles[a].time);
+}
+
+export function indexToTime(candles: Candle[], index: number): number {
+  if (!candles.length || !Number.isFinite(index)) return 0;
+  const a = Math.max(0, Math.min(candles.length - 2, Math.floor(index)));
+  const time = candles.length === 1 ? candles[0].time + index * 3_600_000
+    : candles[a].time + (index - a) * (candles[a + 1].time - candles[a].time);
+  return Math.max(0, Math.min(8.64e15, time));
 }
