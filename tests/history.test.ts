@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { CandleStore, priceToY, timeToIndex } from '../src/model.ts';
 import type { Candle } from '../src/model.ts';
 import { ChartEngine } from '../src/engine.ts';
-import { createHistoryPager, HistoryPageError } from '../src/history.ts';
-import { fetchBinanceOlder } from '../src/binance.ts';
+import { createHistoryPager, HistoryPageError } from 'liquid-chart/history';
+import { fetchBinanceOlder } from '../demo/binance.ts';
 
 const candle = (time: number, close = 102): Candle => ({ time, open: 100, high: 110, low: 90, close, volume: 5 });
 const flush = () => new Promise(resolve => setImmediate(resolve));

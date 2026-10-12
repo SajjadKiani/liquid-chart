@@ -1,17 +1,70 @@
 {
   "name": "liquid-chart",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "build": "npm run typecheck && npm run build:lib && npm run build:demo",
+    "preview": "vite preview --host 127.0.0.1 --outDir demo-dist",
+    "test": "npm run build:lib && node --experimental-strip-types --test tests/*.test.ts tests/package.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "build:lib": "node scripts/build-library.mjs",
+    "build:demo": "vite build",
+    "prepack": "npm run build:lib",
+    "test:package": "npm run build:lib && node --test tests/package.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
+  },
+  "description": "Customizable Canvas 2D financial chart engine with candles, drawing tools, magnet snapping and logarithmic scales.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./model": {
+      "types": "./dist/model.d.ts",
+      "import": "./dist/model.js",
+      "default": "./dist/model.js"
+    },
+    "./history": {
+      "types": "./dist/history.d.ts",
+      "import": "./dist/history.js",
+      "default": "./dist/history.js"
+    },
+    "./style.css": "./dist/style.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SajjadKiani/liquid-chart.git"
+  },
+  "homepage": "https://github.com/SajjadKiani/liquid-chart#readme",
+  "bugs": {
+    "url": "https://github.com/SajjadKiani/liquid-chart/issues"
+  },
+  "keywords": [
+    "charts",
+    "candlestick",
+    "canvas",
+    "financial",
+    "typescript",
+    "drawing"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

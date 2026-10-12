@@ -1,14 +1,35 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": [
+      "vite/client"
+    ],
+    "paths": {
+      "liquid-chart": [
+        "./src/index.ts"
+      ],
+      "liquid-chart/model": [
+        "./src/model.ts"
+      ],
+      "liquid-chart/history": [
+        "./src/history.ts"
+      ]
+    }
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "demo",
+    "vite.config.ts"
+  ]
 }

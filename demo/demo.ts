@@ -1,4 +1,4 @@
-import type { Candle } from './model.ts';
+import type { Candle } from 'liquid-chart';
 
 export const instruments = [
   { symbol: 'BTC/USD', name: 'Bitcoin', base: 64218, tag: 'BTC', color: '#e7af66' },

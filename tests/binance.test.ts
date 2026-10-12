@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { binanceInterval, connectBinance, parseBinanceHistory, parseBinanceUpdate } from '../src/binance.ts';
+import { binanceInterval, connectBinance, parseBinanceHistory, parseBinanceUpdate } from '../demo/binance.ts';
 
 const row = (time = 1000, volume = '5', close = '102') => [time, '100', '110', '90', close, volume];
 const event = (volume = '6', close = '103', eventTime = 2000, time = 1000) => ({ e: 'kline', E: eventTime, s: 'BTCUSDT', k: { s: 'BTCUSDT', i: '1h', t: time, o: '100', h: '110', l: '90', c: close, v: volume } });

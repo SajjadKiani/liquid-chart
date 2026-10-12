@@ -5,7 +5,7 @@ export class HistoryPageError extends Error {
   constructor(message: string, retryAfterMs = 0) { super(message); this.retryAfterMs = retryAfterMs; }
 }
 export type HistoryStatus = { state: 'idle' | 'loading' | 'end' | 'error'; message: string; canRetry: boolean };
-type Options = {
+export type HistoryPagerOptions = {
   oldestTime: () => number | undefined;
   fetchPage: (before: number, signal: AbortSignal) => Promise<Candle[]>;
   prepend: (candles: Candle[]) => number;
@@ -18,7 +18,7 @@ type Clock = {
 };
 
 // Pagination lifetime is separate from the live stream: paused charts can still load history.
-export function createHistoryPager(options: Options, overrides: Partial<Clock> = {}) {
+export function createHistoryPager(options: HistoryPagerOptions, overrides: Partial<Clock> = {}) {
   const clock: Clock = { now: Date.now, schedule: (fn, ms) => setTimeout(fn, ms), cancel: timer => clearTimeout(timer), ...overrides };
   let active = true, loading = false, ended = false, failed = false, blockedUntil = 0;
   let request: AbortController | undefined;

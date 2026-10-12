@@ -1,6 +1,6 @@
-import { CandleStore, validateCandle } from './model.ts';
-import type { Candle } from './model.ts';
-import { HistoryPageError } from './history.ts';
+import { CandleStore, validateCandle } from 'liquid-chart/model';
+import type { Candle } from 'liquid-chart';
+import { HistoryPageError } from 'liquid-chart/history';
 
 const REST = 'https://data-api.binance.vision/api/v3/klines';
 const STREAM = 'wss://data-stream.binance.vision/ws/';

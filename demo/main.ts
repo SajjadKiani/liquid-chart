@@ -1,13 +1,14 @@
+import 'liquid-chart/style.css';
 import './style.css';
-import { ChartEngine, formatPrice } from './engine.ts';
-import type { ChartOptions } from './engine.ts';
+import { ChartEngine, formatPrice } from 'liquid-chart';
+import type { ChartOptions } from 'liquid-chart';
 import { generateCandles, instruments, intervals } from './demo.ts';
 import { binanceSymbols, connectBinance, fetchBinanceOlder } from './binance.ts';
-import { createHistoryPager } from './history.ts';
-import { drawingStyle, restoreDrawings } from './drawings.ts';
-import { TOOL_GROUPS, toolLabel, freehand, singlePoint } from './drawing-tools.ts';
-import type { MagnetMode } from './magnet.ts';
-import type { Drawing, Tool } from './model.ts';
+import { createHistoryPager } from 'liquid-chart/history';
+import { drawingStyle, restoreDrawings } from 'liquid-chart';
+import { TOOL_GROUPS, toolLabel, freehand, singlePoint } from 'liquid-chart';
+import type { MagnetMode } from 'liquid-chart';
+import type { Drawing, Tool } from 'liquid-chart';
 
 const icons: Record<string, string> = {
   fib: '<path d="M3 4h18M3 9h14M3 14h18M3 20h14"/><circle cx="4" cy="4" r="1"/><circle cx="17" cy="20" r="1"/>',

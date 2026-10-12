@@ -51,14 +51,19 @@ export class ChartEngine {
   private average: (number | null)[] = [];
   private listeners = new Set<(state: ChartState) => void>();
   private host: HTMLElement;
+  private addedHostClass = false;
+  private destroyed = false;
   onDrawingsChange: (drawings: Drawing[]) => void = () => {};
 
   get priceScale(): PriceScale {
     return this.options.priceScale === 'log' && this.store.supportsLogScale ? 'log' : 'linear';
   }
 
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, options: Partial<ChartOptions> = {}) {
     this.host = host;
+    this.options = { ...this.options, ...options };
+    this.addedHostClass = !host.classList.contains('liquid-chart-host');
+    host.classList.add('liquid-chart-host');
     this.ctx = this.canvas.getContext('2d')!;
     this.over = this.overlay.getContext('2d')!;
     this.canvas.className = 'chart-canvas';
@@ -82,6 +87,7 @@ export class ChartEngine {
   }
 
   subscribe(listener: (state: ChartState) => void): () => void {
+    if (this.destroyed) return () => {};
     this.listeners.add(listener);
     listener(this.state());
     return () => this.listeners.delete(listener);
@@ -244,11 +250,27 @@ export class ChartEngine {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.cancelDrawingGesture();
+    this.drag = null; this.pending = null; this.cursor = null;
     this.observer.disconnect();
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.overlay.removeEventListener('pointerdown', this.pointerDown);
+    this.overlay.removeEventListener('pointermove', this.pointerMove);
+    this.overlay.removeEventListener('pointerup', this.pointerUp);
+    this.overlay.removeEventListener('pointercancel', this.pointerCancel);
+    this.overlay.removeEventListener('lostpointercapture', this.pointerCancel);
+    this.overlay.removeEventListener('pointerleave', this.pointerLeave);
+    this.overlay.removeEventListener('wheel', this.wheel);
+    this.overlay.removeEventListener('dblclick', this.doubleClick);
+    this.overlay.removeEventListener('keydown', this.keyDown);
     this.canvas.remove();
     this.overlay.remove();
+    if (this.addedHostClass) this.host.classList.remove('liquid-chart-host');
     this.listeners.clear();
+    this.onDrawingsChange = () => {};
   }
 
   private state(): ChartState {
@@ -281,6 +303,7 @@ export class ChartEngine {
   }
 
   private invalidate(base = true): void {
+    if (this.destroyed) return;
     this.dirty ||= base;
     if (this.raf) return;
     this.raf = requestAnimationFrame(() => {

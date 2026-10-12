@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-LiquidChart is a customizable financial charting platform built around an independently implemented candle engine. The current project is a browser MVP with public Binance spot data, synthetic demo data, and local imports. It has no trading or account connection.
+LiquidChart is an npm chart-engine package with a separate browser workspace demo. The package contains the independently implemented Canvas renderer, model, drawing tools, magnet snapping, and provider-independent history pager. The demo uses public Binance spot data, synthetic data, and local imports. It has no trading or account connection.
 
 - Do not introduce TradingView code, libraries, widgets, APIs, or branding.
 - Keep the core chart renderer owned by this project. Do not replace it with a third-party charting library.
@@ -18,12 +18,16 @@ Use Node.js 22.18+; Node.js 24 is recommended. Run commands from the project roo
 ```sh
 npm install         # Install when dependencies are absent or changed
 npm run dev         # Local development; binds to 127.0.0.1
-npm test            # Model and coordinate-system tests
-npm run build       # Type-check, then build into dist/
-npm run preview     # Preview a completed production build
+npm test            # Core/demo tests and isolated packed-package consumer tests
+npm run build       # Type-check, package into dist/, demo into demo-dist/
+npm run build:lib   # Build ESM, declarations, embedded-source maps, and scoped CSS
+npm run build:demo  # Build demo against the already-built package exports
+npm run test:package # Verify actual tarball installation, exports, types, and lifecycle
+npm pack            # prepack rebuilds library and creates an installable .tgz
+npm run preview     # Preview a completed production demo
 ```
 
-Keep dependency changes minimal and update `package-lock.json` when they are necessary. Edit source files rather than generated files in `dist/` or dependencies in `node_modules/`.
+Keep dependency changes minimal and update `package-lock.json` when they are necessary. Edit source files rather than generated files in `dist/` or `demo-dist/` or dependencies in `node_modules/`.
 
 ## Code discovery
 
@@ -47,20 +51,25 @@ Use file tools for string literals, error messages, configuration values, and no
 
 | File | Responsibility |
 | --- | --- |
+| `src/index.ts` | Public package exports and createChart factory. |
+| `src/chart.css` | Scoped engine-only host/canvas CSS; never global workspace styles. |
 | `src/model.ts` | Candle validation and storage, scales, coordinate math, time lookup, and moving averages. Keep it free of DOM and browser dependencies. |
 | `src/drawings.ts` | Validated drawing storage, paths/labels, hit testing, move/resize geometry, and undo history. |
 | `src/drawing-tools.ts` | Supported drawing catalogue and grouped toolbar metadata. |
 | `src/magnet.ts` | Pure CSS-pixel OHLC anchor snapping for linear/log scales. |
 | `src/engine.ts` | Canvas rendering, viewport management, input handling, redraw scheduling, drawing geometry, and chart subscriptions. |
-| `src/drawings.ts` | Pure drawing validation, geometry, hit testing, resize/move behavior, and bounded undo history. |
-| `src/demo.ts` | Synthetic instruments, timeframes, and reproducible sample history. |
-| `src/binance.ts` | Public Binance REST/WebSocket adapter, validation, buffering, lifecycle, and reconnects. |
+| `demo/demo.ts` | Synthetic instruments, timeframes, and reproducible sample history. |
+| `demo/binance.ts` | Public Binance REST/WebSocket adapter, validation, buffering, lifecycle, and reconnects. |
 | `src/history.ts` | Provider-independent older-history pagination, cancellation, retry, and end-of-history state. |
-| `src/main.ts` | Workspace UI, browser storage, import/export, and simulated streaming. |
-| `src/style.css` | Responsive interface styling. |
+| `demo/main.ts` | Workspace UI, browser storage, import/export, and simulated streaming. |
+| `demo/style.css` | Responsive interface styling. |
 | `tests/` | Meaningful model tests and valid/invalid import fixtures. |
 
-The dependency direction is UI → engine → model. Demo data belongs outside the engine. Keep file pickers, localStorage, timers for simulation, provider-specific logic, and workspace controls out of the core model.
+The dependency direction is demo UI → package public API → engine → model. Keep the package at zero runtime dependencies. Package exports are ESM JavaScript, declarations, model/history subpaths, and CSS. Only dist/, README.md, and package metadata belong in the tarball. No demo UI, provider adapters, storage, tests, or secrets belong in the distribution. Use development aliases for live source edits; production demo builds must resolve built exports. The license is UNLICENSED until the user explicitly chooses another license; do not publish an npm release without a user request.
+
+The engine host receives a scoped liquid-chart-host class; preserve existing classes and remove engine listeners/observers/canvases during destroy(). Importing the JS must remain safe without a DOM; browser APIs are used only when creating a chart.
+
+The dependency direction remains UI → engine → model. Demo data belongs outside the engine. Keep file pickers, localStorage, timers for simulation, provider-specific logic, and workspace controls out of the core model.
 
 Preserve the engine's public entry points: `setData`, `update`, `configure`, `subscribe`, and `destroy`. If a change requires a different contract, update callers and document the change. Share coordinate math across renderers and tools instead of duplicating it.
 
@@ -113,7 +122,7 @@ Treat these as documented limitations, not completed capabilities. Update `READM
 
 ## Verification and handoff
 
-- For model, engine, or data-flow changes, run `npm test` and `npm run build`.
+- For model, engine, or data-flow changes, run `npm test` and `npm run build`. Package/build/export changes must pass packed-consumer tests with strict NodeNext and Bundler type resolution and a standalone browser rendering check.
 - For UI or styling changes, run `npm run build` and verify affected browser interactions. Run model tests if shared behavior also changed.
 - Add focused tests for new math, data invariants, or reproduced bugs. Avoid tests that only restate implementation details.
 - Documentation-only edits do not require application tests.
