@@ -69,6 +69,19 @@ export class CandleStore {
     this.nonPositiveCount += Number(candle.low <= 0);
     return { index, inserted: true };
   }
+
+  prepend(input: Candle[]): number {
+    if (!input.length) return 0;
+    // Validate the whole page before changing data; overlaps cannot overwrite live bars.
+    const page = new CandleStore();
+    page.setData(input);
+    const oldest = this.candles[0]?.time ?? Infinity;
+    const earlier = page.candles.filter(c => c.time < oldest);
+    if (!earlier.length) return 0;
+    this.candles = earlier.concat(this.candles);
+    this.nonPositiveCount += earlier.reduce((count, c) => count + Number(c.low <= 0), 0);
+    return earlier.length;
+  }
 }
 
 export function lowerBound(candles: Candle[], time: number): number {

@@ -2,7 +2,8 @@ import './style.css';
 import { ChartEngine, formatPrice } from './engine.ts';
 import type { ChartOptions } from './engine.ts';
 import { generateCandles, instruments, intervals } from './demo.ts';
-import { binanceSymbols, connectBinance } from './binance.ts';
+import { binanceSymbols, connectBinance, fetchBinanceOlder } from './binance.ts';
+import { createHistoryPager } from './history.ts';
 import type { Drawing, Tool } from './model.ts';
 
 const icons: Record<string, string> = {
@@ -40,6 +41,7 @@ app.innerHTML = `
     </aside>
     <main class="main">
       <div class="source-controls"><label for="data-source">Data source</label><select id="data-source"><option value="binance">Binance spot</option><option value="demo">Demo</option><option value="imported" disabled hidden>Imported file</option></select><span id="source-status" role="status" aria-live="polite">Starting…</span><button id="retry-feed" class="text-button" hidden>Retry</button></div>
+      <div id="history-info" class="history-controls" hidden><span id="history-status" role="status" aria-live="polite"></span><button id="retry-history" class="text-button" hidden>Retry history</button></div>
       <section class="market-header" aria-label="Selected market">
         <div class="market-title"><span class="eyebrow">MARKET OVERVIEW</span><div class="title-line"><h1 id="symbol-title">Bitcoin <span>BTC / USD</span></h1><span class="asset-tag" id="asset-tag">CRYPTO</span></div><p id="source-description">Synthetic prices · independent chart workspace</p></div>
         <div class="quote"><div id="latest-price">64,218.00 <span>USD</span></div><div id="latest-change" class="positive">+0.00% <span>last candle</span></div></div>
@@ -98,7 +100,7 @@ app.innerHTML = `
   </div>
   <input id="file-input" type="file" accept="application/json,.json" hidden />
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">QUICK GUIDE</span><button id="help-close" aria-label="Close help">×</button></div><h2>Find your perspective.</h2><dl><dt>Pan & zoom</dt><dd>Drag the chart to move time and price together. Pan past the latest candle to reveal space on its right. Scroll to zoom; Shift-scroll moves time. Drag up/down or scroll on the right price axis to zoom vertically. Drag right/left or scroll on the bottom time axis to zoom horizontally. Alt-scroll on the plot moves prices. Double-click an axis to reset it. Auto fits visible prices again. Double-click resets both axes.</dd><dt>Price scale</dt><dd>Use Log in the chart footer or Style → Price scale. Equal percentage moves have equal vertical spacing. Log mode requires positive prices; zero or negative data uses the linear scale.</dd><dt>Drawing tools</dt><dd>Select a trendline and click two points. Select a price level and click once. Escape returns to the cursor. Drawings are saved for each market and timeframe in this browser.</dd><dt>Keyboard</dt><dd>Focus the chart: ← / → move time, ↑ / ↓ move prices, + / − zoom, Home follows the latest candle, and A fits prices.</dd><dt>Your data</dt><dd>Import a JSON array of candles with time (UTC milliseconds), open, high, low, close, and optional volume. Imports pause the simulation.</dd><dt>Market data</dt><dd>Select Binance spot for live USDT candles, or Demo for synthetic candles. Pause stops live updates; resume refreshes history. Only the selected market streams. Binance access depends on your network.</dd><dt>Live demo</dt><dd>Demo prices are synthetic. The accelerated simulator updates every second and opens a new candle every 10 seconds. This is not an exchange feed.</dd></dl></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">QUICK GUIDE</span><button id="help-close" aria-label="Close help">×</button></div><h2>Find your perspective.</h2><dl><dt>Pan & zoom</dt><dd>Drag the chart to move time and price together. Pan past the latest candle to reveal space on its right. Scroll to zoom; Shift-scroll moves time. Drag up/down or scroll on the right price axis to zoom vertically. Drag right/left or scroll on the bottom time axis to zoom horizontally. Alt-scroll on the plot moves prices. Double-click an axis to reset it. Auto fits visible prices again. Double-click resets both axes.</dd><dt>Price scale</dt><dd>Use Log in the chart footer or Style → Price scale. Equal percentage moves have equal vertical spacing. Log mode requires positive prices; zero or negative data uses the linear scale.</dd><dt>Drawing tools</dt><dd>Select a trendline and click two points. Select a price level and click once. Escape returns to the cursor. Drawings are saved for each market and timeframe in this browser.</dd><dt>Keyboard</dt><dd>Focus the chart: ← / → move time, ↑ / ↓ move prices, + / − zoom, Home follows the latest candle, and A fits prices.</dd><dt>Your data</dt><dd>Import a JSON array of candles with time (UTC milliseconds), open, high, low, close, and optional volume. Imports pause the simulation.</dd><dt>Market data</dt><dd>Select Binance spot for live USDT candles, or Demo for synthetic candles. Pause stops live updates; resume refreshes history. Pan left to load earlier Binance candles in pages. Only the selected market streams. Binance access depends on your network.</dd><dt>Live demo</dt><dd>Demo prices are synthetic. The accelerated simulator updates every second and opens a new candle every 10 seconds. This is not an exchange feed.</dd></dl></dialog>
 `;
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -113,6 +115,7 @@ let displayedSelected = selected;
 let displayedInterval = interval;
 let feed: ReturnType<typeof connectBinance> | undefined;
 let feedGeneration = 0;
+let history: ReturnType<typeof createHistoryPager> | undefined;
 let tick = 0;
 let toastTimer: ReturnType<typeof setTimeout>;
 const priceCache = instruments.map(s => s.base);
@@ -235,6 +238,30 @@ function stopFeed(): void {
   feed?.stop(); feed = undefined;
 }
 
+function stopHistory(): void {
+  history?.stop(); history = undefined;
+  el('history-info').hidden = true;
+}
+
+function ensureHistory(): void {
+  if (history || displayedSource !== 'binance') return;
+  const symbol = binanceSymbols[displayedSelected];
+  const label = displayedInterval.label;
+  el('history-info').hidden = false;
+  el('history-status').textContent = 'Scroll left to load earlier candles';
+  el('retry-history').hidden = true;
+  history = createHistoryPager({
+    oldestTime: () => chart.store.candles[0]?.time,
+    fetchPage: (before, signal) => fetchBinanceOlder(symbol, label, before, signal),
+    prepend: candles => chart.prependData(candles),
+    onStatus(status) {
+      el('history-status').textContent = status.message;
+      el('retry-history').hidden = status.state !== 'error';
+      el<HTMLButtonElement>('retry-history').disabled = !status.canRetry;
+    },
+  });
+}
+
 function commitMarket(mode: 'demo' | 'binance'): void {
   const changedSource = displayedSource !== mode;
   displayedSource = mode;
@@ -271,6 +298,7 @@ function commitMarket(mode: 'demo' | 'binance'): void {
 
 function loadMarket(): void {
   stopFeed();
+  if (source !== 'binance' || displayedSource !== 'binance' || displayedSelected !== selected || displayedInterval.label !== interval.label) stopHistory();
   el<HTMLSelectElement>('data-source').value = source;
   if (source === 'demo') {
     chart.setData(generateCandles(instruments[selected].base, interval.ms));
@@ -292,6 +320,7 @@ function loadMarket(): void {
       if (generation !== feedGeneration) return;
       if (!initialized) { chart.setData(candles); commitMarket('binance'); initialized = true; }
       else for (const candle of candles) chart.update(candle);
+      ensureHistory();
       refreshQuote();
     },
     onCandle(candle) {
@@ -312,6 +341,7 @@ function loadMarket(): void {
 }
 
 chart.subscribe(state => {
+  if (displayedSource === 'binance' && source === 'binance' && displayedSelected === selected && displayedInterval.label === interval.label && !state.following) history?.consider(state.firstVisibleIndex, state.visible);
   syncScale();
   el('auto-price').classList.toggle('active', state.autoPrice);
   el('auto-price').setAttribute('aria-pressed', String(state.autoPrice));
@@ -362,6 +392,7 @@ el('data-source').addEventListener('change', () => {
   loadMarket();
 });
 el('retry-feed').addEventListener('click', () => loadMarket());
+el('retry-history').addEventListener('click', () => history?.retry());
 el('demo-data').addEventListener('click', () => { source = 'demo'; el<HTMLSelectElement>('data-source').value = 'demo'; loadMarket(); });
 for (const type of ['candles', 'line'] as const) el(type).addEventListener('click', () => { chart.configure({ style: type }); syncOptions(); saveOptions(); });
 el('ma-toggle').addEventListener('click', () => { chart.configure({ showMA: !chart.options.showMA }); syncOptions(); saveOptions(); });
@@ -419,7 +450,7 @@ el('file-input').addEventListener('change', async () => {
     const value: unknown = JSON.parse(await file.text());
     if (!Array.isArray(value)) throw new Error('Expected a JSON array of candle objects.');
     chart.setData(value);
-    stopFeed(); displayedSource = 'imported';
+    stopFeed(); stopHistory(); displayedSource = 'imported';
     el<HTMLSelectElement>('data-source').value = 'imported';
     imported = true; setRunning(false); chart.setTool('cursor');
     el('source-status').textContent = 'Imported local candles · Updates paused';
@@ -459,11 +490,15 @@ const timer = setInterval(() => {
 }, 1000);
 
 let resumeOnPageShow = false;
-const pageHide = () => { resumeOnPageShow = !!feed; stopFeed(); };
-const pageShow = (event: PageTransitionEvent) => { if (event.persisted && source === 'binance' && !imported && resumeOnPageShow) loadMarket(); };
+const pageHide = () => { resumeOnPageShow = !!feed; stopFeed(); stopHistory(); };
+const pageShow = (event: PageTransitionEvent) => {
+  if (!event.persisted) return;
+  if (source === 'binance' && !imported && resumeOnPageShow) loadMarket();
+  else if (displayedSource === 'binance') ensureHistory();
+};
 window.addEventListener('pagehide', pageHide);
 window.addEventListener('pageshow', pageShow);
 if (import.meta.hot) import.meta.hot.dispose(() => {
-  stopFeed(); clearInterval(timer); clearTimeout(toastTimer); chart.destroy();
+  stopFeed(); stopHistory(); clearInterval(timer); clearTimeout(toastTimer); chart.destroy();
   window.removeEventListener('pagehide', pageHide); window.removeEventListener('pageshow', pageShow);
 });

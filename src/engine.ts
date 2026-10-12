@@ -6,7 +6,7 @@ export type ChartOptions = {
   backgroundColor: string; gridColor: string;
   style: 'candles' | 'line'; maPeriod: number; priceScale: PriceScale;
 };
-export type ChartState = { candle: Candle | null; following: boolean; visible: number; tool: Tool; drawings: number; priceScale: PriceScale; logAvailable: boolean; autoPrice: boolean };
+export type ChartState = { candle: Candle | null; following: boolean; visible: number; firstVisibleIndex: number; tool: Tool; drawings: number; priceScale: PriceScale; logAvailable: boolean; autoPrice: boolean };
 type Point = { x: number; y: number };
 type Frame = { width: number; height: number; priceBottom: number; volumeTop: number; bottom: number; low: number; high: number; left: number; priceScale: PriceScale };
 type Gesture = { x: number; y: number; right: number; spacing: number; offset: number; base: [number, number]; range: [number, number]; scale: PriceScale; mode: 'pan' | 'price-zoom' | 'time-zoom'; horizontal: boolean; vertical: boolean };
@@ -36,13 +36,15 @@ export class ChartEngine {
   private dirty = true;
   private average: (number | null)[] = [];
   private listeners = new Set<(state: ChartState) => void>();
+  private host: HTMLElement;
   onDrawingsChange: (drawings: Drawing[]) => void = () => {};
 
   get priceScale(): PriceScale {
     return this.options.priceScale === 'log' && this.store.supportsLogScale ? 'log' : 'linear';
   }
 
-  constructor(private host: HTMLElement) {
+  constructor(host: HTMLElement) {
+    this.host = host;
     this.ctx = this.canvas.getContext('2d')!;
     this.over = this.overlay.getContext('2d')!;
     this.canvas.className = 'chart-canvas';
@@ -86,6 +88,18 @@ export class ChartEngine {
     if (this.following) this.right = this.latestRight();
     this.average = movingAverage(this.store.candles, this.options.maPeriod);
     this.invalidate();
+  }
+
+  prependData(candles: Candle[]): number {
+    const added = this.store.prepend(candles);
+    if (!added) return 0;
+    // Every existing bar's index moves by the same amount. Keep its screen position,
+    // including the original viewport used by any drag still in progress.
+    this.right += added;
+    if (this.drag) this.drag.right += added;
+    this.average = movingAverage(this.store.candles, this.options.maPeriod);
+    this.invalidate();
+    return added;
   }
 
   configure(options: Partial<ChartOptions>): void {
@@ -174,7 +188,8 @@ export class ChartEngine {
       const index = Math.round(this.frame.left + this.cursor.x / this.spacing - 0.5);
       candle = data[index] ?? null;
     }
-    return { candle, following: this.following, visible: Math.min(data.length, Math.ceil((this.frame?.width ?? 0) / this.spacing)), tool: this.tool, drawings: this.drawings.length, priceScale: this.priceScale, logAvailable: this.store.supportsLogScale, autoPrice: this.manualPrice === null };
+    const width = this.frame?.width ?? Math.max(1, this.width - 82);
+    return { candle, following: this.following, visible: Math.min(data.length, Math.ceil(width / this.spacing)), firstVisibleIndex: Math.max(0, Math.floor(this.right - width / this.spacing)), tool: this.tool, drawings: this.drawings.length, priceScale: this.priceScale, logAvailable: this.store.supportsLogScale, autoPrice: this.manualPrice === null };
   }
 
   private emit(): void { const state = this.state(); for (const listener of this.listeners) listener(state); }

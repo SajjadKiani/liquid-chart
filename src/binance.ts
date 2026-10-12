@@ -1,5 +1,6 @@
 import { CandleStore, validateCandle } from './model.ts';
 import type { Candle } from './model.ts';
+import { HistoryPageError } from './history.ts';
 
 const REST = 'https://data-api.binance.vision/api/v3/klines';
 const STREAM = 'wss://data-stream.binance.vision/ws/';
@@ -34,6 +35,26 @@ export function parseBinanceUpdate(value: unknown, symbol: string, interval: str
   const eventTime = numeric(event.E);
   if (!Number.isSafeInteger(eventTime) || eventTime < 0) throw new Error('Invalid Binance event time.');
   return { eventTime, candle: validateCandle({ time: numeric(k.t), open: numeric(k.o), high: numeric(k.h), low: numeric(k.l), close: numeric(k.c), volume: numeric(k.v) }) };
+}
+
+export async function fetchBinanceOlder(symbol: string, label: string, before: number, signal: AbortSignal, fetcher: typeof fetch = globalThis.fetch.bind(globalThis)): Promise<Candle[]> {
+  if (!binanceSymbols.includes(symbol as typeof binanceSymbols[number])) throw new Error('Unsupported Binance symbol.');
+  const interval = binanceInterval(label);
+  if (!Number.isSafeInteger(before) || before < 0) throw new Error('Invalid history cursor.');
+  if (before === 0) return [];
+  const params = new URLSearchParams({ symbol, interval, limit: '1000', endTime: String(before - 1) });
+  const response = await fetcher(`${REST}?${params}`, { signal });
+  if (!response.ok) {
+    if (response.status === 429) {
+      const seconds = Number(response.headers.get('Retry-After'));
+      const wait = Math.max(60_000, Number.isFinite(seconds) ? seconds * 1000 : 60_000);
+      throw new HistoryPageError('Binance rate limit reached. Wait before retrying history.', wait);
+    }
+    throw new HistoryPageError(`Earlier Binance history unavailable (HTTP ${response.status}). Current candles are preserved.`);
+  }
+  const value: unknown = await response.json();
+  if (Array.isArray(value) && value.length === 0) return [];
+  return parseBinanceHistory(value);
 }
 
 type Socket = Pick<WebSocket, 'readyState' | 'close' | 'onopen' | 'onclose' | 'onerror' | 'onmessage'>;

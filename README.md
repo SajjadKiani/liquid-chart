@@ -34,6 +34,7 @@ npm run preview
 - Custom chart background and grid colors in Style, applied immediately and saved with preferences.
 - JSON import and export; imported datasets pause the simulator.
 - Binance spot history and live candles, source switching, pause/resume, and automatic reconnect with history resynchronization.
+- Earlier Binance history loads automatically in pages as you pan left, without moving existing candles on screen.
 - Responsive layout, keyboard controls, style settings, and help dialog.
 
 Drag the chart to pan time and price together; drag up/down on the right price axis to zoom prices in/out. Drag right/left on the bottom time axis to zoom time in/out. Pan past the latest candle to reveal space on its right, up to almost a full screen while retaining the last candle. Shift-wheel (or horizontal trackpad scrolling) moves time. Wheel over the price axis zooms prices vertically; wheel over the time axis zooms time horizontally. Scroll up zooms in; scroll down zooms out. Both gestures preserve the price/time under the initial pointer unless a viewport/numeric limit applies. Alt-wheel over the plot moves prices. Ordinary wheel over the plot zooms around the pointer.
@@ -68,7 +69,17 @@ Incoming updates replace the open candle by timestamp and append new candles. St
 
 **Pause** closes the connection and keeps the displayed snapshot. Resume refreshes history and reconnects. Switching market, timeframe, source, or successfully importing candles cancels the old connection and ignores late responses. Failed imports preserve the active feed and candles. Binance drawings are saved separately from demo drawings. Style preferences apply to both.
 
-Connection status identifies loading, live, paused, unavailable, and retrying states. Until a new request succeeds, the previous chart stays visible with its original source labels; synthetic data is never labeled as Binance data. HTTP 403/418/451 stops automatic retry and offers **Retry** or **Demo**. Network or regional restrictions can prevent access. There is no proxy or alternate host to bypass them. After an outage longer than 1,000 intervals, older missing bars require a new load; history pagination is not implemented.
+Connection status identifies loading, live, paused, unavailable, and retrying states. Until a new request succeeds, the previous chart stays visible with its original source labels; synthetic data is never labeled as Binance data. HTTP 403/418/451 stops automatic retry and offers **Retry** or **Demo**. Network or regional restrictions can prevent access. There is no proxy or alternate host to bypass them. Outages longer than the reconnect snapshot can leave internal gaps; older-history pagination does not automatically repair those gaps.
+
+### Scrolling into earlier history
+
+Binance initially loads the latest 1,000 candles. When the left edge of the visible window approaches the oldest loaded candle, another page of up to 1,000 candles is requested with `endTime = oldestOpenTime - 1`. Continue panning left to load additional pages back to the beginning of available exchange history. Zooming out or keyboard navigation also triggers the same loading behavior. Demo and imported datasets keep their fixed local histories.
+
+Each page is validated, sorted, and deduplicated before prepending. Existing candles, including the current live candle, cannot be overwritten by an older page. The viewport and active drag anchor shift by the number of prepended bars so the same candle stays at the same pixel. Candle spacing, manual price range, time/price drawing anchors, and live-following behavior are preserved. Indicators are recalculated once for the entire batch.
+
+Only one older-history request runs at a time. Pagination stops when a page contains no earlier candles. **Loading earlier candles**, **Beginning of available history**, and **Retry history** provide feedback. Failed pages leave existing data and the live connection intact; retry repeats the same cursor. Rate-limited retries remain disabled until Binance's cooldown expires. Switching markets, timeframes, sources, or importing successfully aborts pending pages and ignores late responses. Pausing the live feed still allows earlier-history loading.
+
+Loaded pages are retained in session memory and included in JSON exports; reloading starts again with the latest 1,000 candles. The 100,000-candle limit applies to imports, not a total history window. Large histories use more memory and increase the cost of the current full-history MA calculation. Pagination loads older history; it does not automatically repair an internal gap caused by an outage longer than the 1,000-candle reconnect snapshot.
 
 ## Data contract
 
@@ -89,12 +100,15 @@ Import a JSON array:
 - `src/engine.ts`: rendering, viewport, interaction, redraw scheduling, drawing anchors.
 - `src/demo.ts`: sample symbols and deterministic synthetic history.
 - `src/binance.ts`: public REST/WebSocket adapter, validation, buffering, cancellation, and reconnects.
+- `src/history.ts`: provider-independent historical pagination, single-request control, cancellation, retry, and end-of-history state.
 - `src/main.ts`: workspace UI, file actions, persistence, accelerated live simulator.
 - `src/style.css`: interface styling.
 
 Instantiate `ChartEngine` with a sized host element. Call `setData(candles)` to replace history, `update(candle)` for timestamp-based insertion/replacement, and `configure(options)` for styling. Subscribe for crosshair/viewport changes. Use `destroy()` when removing the engine.
 
 Use `fitPrices()` to restore automatic price fitting, `resetView()` to reset both axes, and `followLatest()` to follow time while retaining a manual price range.
+
+Use `prependData(candles)` to append earlier history to the left without resetting the viewport. It returns the number of newly prepended bars. Subscription state includes `firstVisibleIndex` for provider-independent history loading.
 
 Use `configure({ priceScale: 'log' })` or `configure({ priceScale: 'linear' })` to request a scale. `chart.priceScale` and subscription state expose the effective scale; `chart.options.priceScale` retains the preference. `chart.store.supportsLogScale` reports whether the full dataset permits logarithmic scaling.
 
@@ -104,4 +118,4 @@ The engine is independent of any UI framework. Add custom renderers beside the c
 
 Demo prices are synthetic. Demo simulation updates every second and advances one timeframe every 10 seconds, so timestamps can move into the future. Only the selected market streams in either source. Binance supplies real spot candles in USDT; there is no broker, account, backend, or order execution. Demo timeframes generate separate sample histories; Binance timeframes request exchange candles. Drawings support creation and clearing, not selection or editing. Touch supports drag and one-pointer drawing; pinch zoom is not implemented. Browser storage is local to each browser profile. The optional Google Fonts stylesheet falls back to system fonts when unavailable.
 
-Useful next steps: history pagination, editable drawings, shared demo resampling, indicator plugins, touch pinch zoom, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.
+Useful next steps: editable drawings, shared demo resampling, indicator plugins, touch pinch zoom, internal gap recovery, and multi-pane charts. Profile before introducing workers or WebGL. The current MA recalculates across loaded history on an update; incremental indicator calculation is a future optimization for large streams.
