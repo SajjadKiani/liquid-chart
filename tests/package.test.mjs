@@ -15,11 +15,13 @@ test('packed library installs outside this repository and exposes valid ESM, CSS
     const [archive] = JSON.parse(run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], root));
     const files = archive.files.map(file => file.path);
     assert.ok(files.includes('dist/index.js') && files.includes('dist/index.d.ts') && files.includes('dist/style.css'));
-    assert.ok(files.every(file => file.startsWith('dist/') || ['README.md', 'package.json'].includes(file)), files.join('\n'));
+    assert.ok(files.every(file => file.startsWith('dist/') || ['README.md', 'LICENSE', 'package.json'].includes(file)), files.join('\n'));
     await writeFile(join(directory, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
     run('npm', ['install', join(directory, archive.filename), '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], directory);
     const installed = JSON.parse(await readFile(join(directory, 'node_modules/liquid-chart/package.json'), 'utf8'));
-    assert.equal(installed.license, 'UNLICENSED');
+    assert.equal(installed.license, 'MIT');
+    assert.ok(files.includes('LICENSE'));
+    assert.equal(await readFile(join(directory, 'node_modules/liquid-chart/LICENSE'), 'utf8'), await readFile(join(root, 'LICENSE'), 'utf8'));
     assert.deepEqual(installed.dependencies ?? {}, {});
     const script = `
       import assert from 'node:assert/strict';

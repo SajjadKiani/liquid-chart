@@ -138,10 +138,10 @@ npm run test:package # Install a tarball in an isolated consumer and check expor
 npm pack             # Rebuild library and create liquid-chart-0.1.0.tgz
 ```
 
-Core source is in `src/`; the separate application is in `demo/`. Only `dist/`, this README, and package metadata are distributed. Development resolves the same public API from source; production demo builds resolve the built package. Packed-package tests install the actual archive in a temporary consumer and check runtime imports, declarations, and contents.
+Core source is in `src/`; the separate application is in `demo/`. Only `dist/`, this README, `LICENSE`, and package metadata are distributed. Development resolves the same public API from source; production demo builds resolve the built package. Packed-package tests install the actual archive in a temporary consumer and check runtime imports, declarations, and contents.
 
 ## Status and license
 
 This is an early 0.1.0 API. The core has no broker, order execution, or automatic provider connection. The companion AI backend is a local development service, without production authentication or tenant isolation. Generated calculations support numeric parameters, lines, histograms, filled bands, bar offsets, and reference levels; markers, incremental calculation, and independent formula verification remain future work. Channels/pitchforks/Gann, text, drawing locks, and touch pinch zoom are not implemented. MA currently recalculates across loaded history on updates. Drawings are capped at 1,000 per chart and freehand strokes at 2,000 points.
 
-License: **UNLICENSED**. No open-source license has been granted. Publishing to npm is a separate release step; creating/installing a local tarball does not publish anything.
+Licensed under the **MIT License**. See [LICENSE](LICENSE) for the full terms. Publishing to npm is a separate release step; creating/installing a local tarball does not publish anything.

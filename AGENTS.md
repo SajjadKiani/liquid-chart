@@ -65,7 +65,7 @@ Use file tools for string literals, error messages, configuration values, and no
 | `demo/style.css` | Responsive interface styling. |
 | `tests/` | Meaningful model tests and valid/invalid import fixtures. |
 
-The dependency direction is demo UI → package public API → engine → model. Keep the package at zero runtime dependencies. Package exports are ESM JavaScript, declarations, model/history subpaths, and CSS. Only dist/, README.md, and package metadata belong in the tarball. No demo UI, provider adapters, storage, tests, or secrets belong in the distribution. Use development aliases for live source edits; production demo builds must resolve built exports. The license is UNLICENSED until the user explicitly chooses another license; do not publish an npm release without a user request.
+The dependency direction is demo UI → package public API → engine → model. Keep the package at zero runtime dependencies. Package exports are ESM JavaScript, declarations, model/history subpaths, and CSS. Only dist/, README.md, LICENSE, and package metadata belong in the tarball. No demo UI, provider adapters, storage, tests, or secrets belong in the distribution. Use development aliases for live source edits; production demo builds must resolve built exports. The user selected the MIT license. Preserve LICENSE and MIT package metadata; do not publish an npm release without a user request.
 
 The engine host receives a scoped liquid-chart-host class; preserve existing classes and remove engine listeners/observers/canvases during destroy(). Importing the JS must remain safe without a DOM; browser APIs are used only when creating a chart.
 
