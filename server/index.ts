@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { selectAIProvider } from './provider.ts';
+import { selectAIProvider, type ProviderSelection } from './provider.ts';
 import { generateIndicator, type AIProvider } from './ai-service.ts';
 
 const BODY_LIMIT = 64 * 1024;
@@ -95,9 +95,9 @@ function readBody(req:IncomingMessage,controller:AbortController,timeoutMs:numbe
   });
 }
 function json(res:ServerResponse,status:number,value:unknown):void { res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}); res.end(JSON.stringify(value)); }
-function safeErrorMessage(error:unknown,key?:string,providerName:'openai'|'openrouter'|'nararouter'='openai'):string {
+function safeErrorMessage(error:unknown,key?:string,providerName:ProviderSelection['name']='openai'):string {
   const candidate=error instanceof Error?error as Error & {status?:number;code?:string}:undefined;
-  const label=providerName==='openrouter'?'OpenRouter':providerName==='nararouter'?'NaraRouter':'OpenAI';
+  const label=providerName==='openrouter'?'OpenRouter':providerName==='nararouter'?'NaraRouter':providerName==='chat-completions'?'Chat Completions provider':'OpenAI';
   const keySetting=providerName==='openrouter'?'OPENROUTER_API_KEY (or OPENAI_API_KEY)':providerName==='nararouter'?'OPENAI_API_KEY':'OPENAI_API_KEY';
   if (candidate?.status===401 || candidate?.code==='invalid_api_key' || /invalid api key/i.test(candidate?.message??'')) return `${label} rejected the configured API key. Check ${keySetting}.`;
   if (candidate?.status===429 || /rate.?limit|quota/i.test(candidate?.message??'')) return `${label} rate limited the request or the account has no available quota.`;

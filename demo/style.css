@@ -71,3 +71,72 @@
 .workspace.is-resizing,.workspace.is-resizing *{cursor:col-resize!important;user-select:none!important}
 @media(min-width:681px){.workspace{grid-template-columns:var(--chat-width,280px) 6px minmax(0,1fr)}.ai-sidebar{border-right:0}}
 @media(max-width:680px){.workspace-divider{display:none}}
+/* Tabbed indicator studio: independent scrolling, anchored composer, square panels. */
+.ai-sidebar{overflow:hidden}
+.ai-head{flex:none;padding:18px 16px 15px;background:#11191c;border-bottom:1px solid #243337}
+.ai-head .eyebrow{color:#77b9a2;font-size:9px;letter-spacing:1.6px}
+.ai-head h2{margin:5px 0 3px;font-size:19px;letter-spacing:-.5px;color:#e3ecea}
+.ai-head p{font-size:11px;color:#82999b;line-height:1.5}
+.ai-tabs{display:flex;flex:none;background:#11191c;border-bottom:1px solid #2c3b3e}
+.ai-tabs button{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:44px;border:0;border-bottom:2px solid transparent;background:transparent;color:#819698;font-size:12px;font-weight:600;cursor:pointer}
+.ai-tabs button:hover{background:#182326;color:#d1e1de}
+.ai-tabs button[aria-selected=true]{color:#b8e6d3;border-bottom-color:#79c4a6;background:#192629}
+.ai-tab-count{padding:2px 5px;min-width:19px;background:#24383a;color:#a8c5bb;font-size:10px;line-height:1.3;font-variant-numeric:tabular-nums}
+.ai-status{flex:none;border:0;border-bottom:1px solid #25383a;padding:10px 16px;background:#152022;color:#9dbcb0;font-size:11px;line-height:1.6;overflow-wrap:anywhere;max-height:112px;overflow:auto;scrollbar-width:thin}
+.ai-tab-panel{flex:1;min-height:0;min-width:0}
+.ai-tab-panel[hidden]{display:none}
+.ai-chat-panel{display:flex;flex-direction:column;overflow:hidden}
+.ai-thread{flex:1;max-height:none;min-height:0;gap:0;overscroll-behavior:contain;scrollbar-color:#3c5655 transparent}
+.ai-message{flex:none;padding:15px 16px;border-color:#253437;background:#131e21}
+.ai-message.user{background:#1a2a2a;border-color:#2b3e3c}
+.ai-message strong{font-size:10px;letter-spacing:.3px;color:#89b8a7}
+.ai-message.user strong{color:#bed3ce}
+.ai-message p{font-size:12px;line-height:1.8;color:#cad9d7;margin:5px 0 0}
+.ai-empty{margin:auto;padding:24px 22px;font-size:13px;line-height:1.9;color:#93aaa9;text-align:left}
+.ai-form{flex:none;border:0;border-top:1px solid #324544;background:#172326;padding:12px 16px 9px}
+.ai-form textarea{display:block;resize:none;min-height:76px;max-height:130px;font:12px/1.7 'DM Sans',sans-serif;padding:0;color:#e0eae7}
+.ai-form:focus-within{border-top-color:#76bca1}
+.ai-form-actions{gap:8px;justify-content:flex-end;padding-top:9px;margin-top:5px}
+.ai-web-search{margin-right:auto;padding:0;font-size:10px;gap:6px;color:#adbfbb}
+.ai-web-search input{width:13px;height:13px}
+.ai-form-actions button{padding:8px 12px;font-size:11px;font-weight:600}
+.ai-form-actions button[type=submit]{background:#99d7bb;border-color:#99d7bb;color:#12271f}
+.ai-form-actions button:disabled{opacity:.5;cursor:wait}
+.ai-composer-hint{display:block;margin-top:8px;color:#637e7f;font-size:9px;text-align:right}
+.ai-indicators-panel{overflow:auto;background:#121d20;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3c5655 transparent}
+.ai-calc-status:not(:empty){border:0;border-bottom:1px solid #283c3e;background:#19272a;padding:8px 16px;color:#8fa9a2;font-size:10px;line-height:1.6}
+.ai-artifacts{display:block}
+.ai-library{position:sticky;top:0;z-index:1;gap:6px;padding:14px 16px;background:#152124;border-bottom:1px solid #304243}
+.ai-library strong{font-size:11px;font-weight:500;color:#afc4bf;padding-bottom:4px}
+.ai-library button{padding:7px 4px;font-size:10px;background:#1b2d2d;border-color:#39504b}
+.ai-artifact{padding:18px 16px;border:0;border-bottom:1px solid #2d3e3e;background:#152124;scroll-margin-top:90px}
+.ai-artifact.selected{background:#1a292b;box-shadow:inset 3px 0 #79c4a6}
+.ai-artifact h3{display:block;margin:0 0 8px;font-size:14px;line-height:1.5;color:#e0eae5}
+.ai-code-label{display:inline-block;padding:3px 6px;border-color:#38504e;color:#90aaa0;font-size:9px}
+.ai-artifact>p{font-size:11px;line-height:1.8;margin:10px 0;color:#9eb4b0}
+.ai-actions{gap:6px;margin:12px 0}
+.ai-actions button{padding:6px 10px;font-size:10px}
+.ai-param{font-size:11px;line-height:1.6;padding:9px 0;border-color:#304344}
+.ai-param input{width:78px;flex:none;padding:7px;font-size:11px;color-scheme:dark}
+.ai-artifact .ai-provenance{font-size:10px;color:#93c4ac;margin:12px 0 3px}
+.ai-artifact .ai-check-note{font-size:10px;color:#829d98;margin:0 0 12px}
+.ai-artifact details{margin-top:0;padding:10px 0;border-color:#304344}
+.ai-artifact summary{font-size:11px;color:#afc8c1;line-height:1.6}
+.ai-assumptions{font-size:11px;line-height:1.8;overflow-wrap:anywhere;margin:10px 0 0}
+.ai-sources{gap:6px;padding-top:10px}
+.ai-sources a,.ai-sources>span{font-size:10px;line-height:1.7}
+.ai-artifact pre{font-size:10px;line-height:1.8;max-height:320px}
+.ai-library-empty{padding:32px 20px;color:#8ea8a4}
+.ai-library-empty h3{font:600 15px/1.6 Manrope,sans-serif;color:#cadfd5;margin:0 0 8px}
+.ai-library-empty p{font-size:12px;line-height:1.9;margin:0 0 20px}
+.ai-library-empty button{border:1px solid #45645a;background:#243d33;color:#c0e6d2;padding:9px 14px;font-size:11px;cursor:pointer}
+.ai-workspace button:focus-visible,.ai-workspace summary:focus-visible,.ai-workspace input:focus-visible,.ai-tab-panel:focus-visible{outline:2px solid #8ed7b8;outline-offset:-2px}
+@media(max-width:680px){
+  .ai-sidebar{min-height:0;overflow:hidden}
+  .ai-head{padding:9px 12px}.ai-head h2{font-size:15px;margin:3px 0 0}.ai-head p{display:none}
+  .ai-tabs button{height:35px;font-size:11px}.ai-status{padding:5px 12px;font-size:10px;max-height:58px}
+  .ai-thread{max-height:none;min-height:0}.ai-message{padding:10px 12px}.ai-message p{font-size:11px}
+  .ai-form{padding:7px 12px}.ai-form textarea{min-height:38px;height:38px;font-size:11px}
+  .ai-form-actions{padding-top:6px;margin-top:3px}.ai-form-actions button{padding:6px 10px;font-size:10px}.ai-composer-hint{display:none}
+  .ai-library{padding:10px 12px}.ai-artifact{padding:14px 12px}.ai-library-empty{padding:18px 12px}.ai-empty{font-size:11px;padding:12px}
+}

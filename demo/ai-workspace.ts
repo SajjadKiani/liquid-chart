@@ -24,12 +24,20 @@ export function createAIWorkspace(options: {
   const controller = new AIWorkspaceController();
   const root = document.createElement('section');
   root.className = 'ai-workspace';
-  root.innerHTML = `<header class="ai-head"><span class="eyebrow">INDICATOR STUDIO</span><h2>Build an indicator</h2><p>Describe the calculation. Generated code runs in an isolated browser worker.</p></header>
+  root.innerHTML = `<header class="ai-head"><span class="eyebrow">LIQUIDCHART</span><h2>Indicator studio</h2><p>Your ideas, plotted.</p></header>
+    <div class="ai-tabs" role="tablist" aria-label="Indicator studio">
+      <button id="ai-chat-tab" type="button" role="tab" aria-selected="true" aria-controls="ai-chat-panel">Chat</button>
+      <button id="ai-indicators-tab" type="button" role="tab" aria-selected="false" aria-controls="ai-indicators-panel" tabindex="-1">Indicators <span class="ai-tab-count" aria-hidden="true">0</span></button>
+    </div>
     <div class="ai-status" role="status" aria-live="polite">Checking AI configuration…</div>
-    <div class="ai-calc-status" role="status" aria-live="polite"></div>
-    <div class="ai-thread" aria-live="polite"></div>
-    <form class="ai-form"><label class="sr-only" for="ai-request">Describe an indicator</label><textarea id="ai-request" rows="3" maxlength="4000" placeholder="Example: Plot a 14-period average true range in its own pane…" required></textarea><div class="ai-form-actions"><span>Research and code generation may take a moment.</span><label class="ai-web-search"><input id="ai-web-search" type="checkbox" checked /> Web search</label><button type="submit">Generate ↗</button><button type="button" class="ai-cancel" hidden>Cancel</button></div></form>
-    <div class="ai-artifacts"></div>`;
+    <section id="ai-chat-panel" class="ai-tab-panel ai-chat-panel" role="tabpanel" aria-labelledby="ai-chat-tab">
+      <div class="ai-thread" role="log" aria-label="Conversation" aria-live="polite"></div>
+      <form class="ai-form"><label class="sr-only" for="ai-request">Describe an indicator</label><textarea id="ai-request" rows="3" maxlength="4000" placeholder="Describe what you want to plot…" required></textarea><div class="ai-form-actions"><label class="ai-web-search"><input id="ai-web-search" type="checkbox" checked /> Web search</label><button type="button" class="ai-cancel" hidden>Cancel</button><button type="submit">Generate ↗</button></div><span class="ai-composer-hint">Ctrl / ⌘ + Enter to generate</span></form>
+    </section>
+    <section id="ai-indicators-panel" class="ai-tab-panel ai-indicators-panel" role="tabpanel" aria-labelledby="ai-indicators-tab" tabindex="0" hidden>
+      <div class="ai-calc-status" role="status" aria-live="polite"></div>
+      <div class="ai-artifacts"></div>
+    </section>`;
   host.replaceChildren(root);
   const status = root.querySelector<HTMLElement>('.ai-status')!;
   const calcStatus = root.querySelector<HTMLElement>('.ai-calc-status')!;
@@ -44,6 +52,35 @@ export function createAIWorkspace(options: {
     try { localStorage.setItem('liquidchart.ai.webSearch', String(webSearch.checked)); } catch { /* preference remains active for this page */ }
   });
   const artifacts = root.querySelector<HTMLElement>('.ai-artifacts')!;
+  const chatTab = root.querySelector<HTMLButtonElement>('#ai-chat-tab')!;
+  const indicatorsTab = root.querySelector<HTMLButtonElement>('#ai-indicators-tab')!;
+  const chatPanel = root.querySelector<HTMLElement>('#ai-chat-panel')!;
+  const indicatorsPanel = root.querySelector<HTMLElement>('#ai-indicators-panel')!;
+  const indicatorCount = root.querySelector<HTMLElement>('.ai-tab-count')!;
+  let chatNeedsScroll = false;
+  function activateTab(tab: 'chat' | 'indicators', focus = false) {
+    const isChat = tab === 'chat';
+    chatTab.setAttribute('aria-selected', String(isChat));
+    indicatorsTab.setAttribute('aria-selected', String(!isChat));
+    chatTab.tabIndex = isChat ? 0 : -1; indicatorsTab.tabIndex = isChat ? -1 : 0;
+    chatPanel.hidden = !isChat; indicatorsPanel.hidden = isChat;
+    if (isChat && chatNeedsScroll) { thread.scrollTop = thread.scrollHeight; chatNeedsScroll = false; }
+    if (focus) (isChat ? chatTab : indicatorsTab).focus();
+  }
+  for (const [tab, name] of [[chatTab, 'chat'], [indicatorsTab, 'indicators']] as const) {
+    tab.addEventListener('click', () => activateTab(name));
+    tab.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      activateTab(event.key === 'Home' ? 'chat' : event.key === 'End' ? 'indicators' : name === 'chat' ? 'indicators' : 'chat', true);
+    });
+  }
+  prompt.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) {
+      event.preventDefault();
+      if (!submit.disabled) form.requestSubmit();
+    }
+  });
   let currentKey = '';
   let persistentScope = true;
   let saved = blankSaved();
@@ -94,8 +131,9 @@ export function createAIWorkspace(options: {
   function renderChat() {
     thread.replaceChildren();
     if (!saved.chat.length) {
+      chatNeedsScroll = false;
       const intro = document.createElement('p'); intro.className = 'ai-empty';
-      intro.textContent = 'Ask for a custom calculation. Web sources are included when available; assumptions, execution checks, and generated code appear with each result.';
+      intro.textContent = 'Start with an idea. Describe a calculation, its inputs, and how it should look on the chart. Your generated code and settings will live in Indicators.';
       thread.append(intro); return;
     }
     for (const item of saved.chat) {
@@ -104,7 +142,8 @@ export function createAIWorkspace(options: {
       const body = document.createElement('p'); body.textContent = item.text;
       bubble.append(label, body); thread.append(bubble);
     }
-    thread.scrollTop = thread.scrollHeight;
+    if (chatPanel.hidden) chatNeedsScroll = true;
+    else { thread.scrollTop = thread.scrollHeight; chatNeedsScroll = false; }
   }
   function validateSaved(raw: unknown): Saved {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Saved workspace data is invalid.');
@@ -203,7 +242,7 @@ export function createAIWorkspace(options: {
         encode(nextSaved);
         applyOutput(program, output);
         saved = nextSaved;
-        persist(); renderArtifacts();
+        persist(); renderArtifacts(); activateTab('indicators');
         calcStatus.textContent = `Imported and applied ${program.name}.`; addChat('assistant', `Imported code: ${program.name}.`);
       } catch (error) {
         if (!disposed && controller.isImportCurrent(ticket)) calcStatus.textContent = `Artifact import failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -212,8 +251,10 @@ export function createAIWorkspace(options: {
   }
   function renderArtifacts() {
     artifacts.replaceChildren();
+    indicatorCount.textContent = String(saved.programs.length);
+    indicatorsTab.setAttribute('aria-label', `Indicators (${saved.programs.length})`);
     const library = document.createElement('div'); library.className = 'ai-library';
-    const libraryTitle = document.createElement('strong'); libraryTitle.textContent = 'Saved indicators';
+    const libraryTitle = document.createElement('strong'); libraryTitle.textContent = saved.programs.length ? `${saved.programs.length} saved · ${saved.appliedIds.length} on chart` : 'Your indicator library';
     const exportButton = document.createElement('button'); exportButton.type = 'button'; exportButton.textContent = 'Export selected'; exportButton.disabled = !selectedProgram();
     exportButton.onclick = () => { const program = selectedProgram(); if (!program) return; const blob = new Blob([JSON.stringify(program, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `${program.id}.indicator.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
     const importButton = document.createElement('button'); importButton.type = 'button'; importButton.className = 'ai-import-button'; importButton.textContent = 'Import artifact';
@@ -232,6 +273,13 @@ export function createAIWorkspace(options: {
     importButton.addEventListener('click', () => importInput.click());
     importInput.addEventListener('change', () => { const file = importInput.files?.[0]; if (file) importProgram(file); importInput.value = ''; });
     library.append(libraryTitle, undoRemoval, exportButton, importButton, importInput); artifacts.append(library);
+    if (!saved.programs.length) {
+      const empty = document.createElement('div'); empty.className = 'ai-library-empty';
+      const title = document.createElement('h3'); title.textContent = 'A home for your indicators';
+      const hint = document.createElement('p'); hint.textContent = 'Generate an indicator in Chat, or import an artifact. Adjust its parameters and inspect its code here.';
+      const start = document.createElement('button'); start.type = 'button'; start.textContent = 'Open Chat ↗'; start.onclick = () => { activateTab('chat'); prompt.focus(); };
+      empty.append(title, hint, start); artifacts.append(empty);
+    }
     for (const program of saved.programs) {
       const card = document.createElement('article'); card.className = `ai-artifact ${program.id === saved.selectedId ? 'selected' : ''}`;
       const title = document.createElement('h3'); title.textContent = program.name;
@@ -263,6 +311,8 @@ export function createAIWorkspace(options: {
         const note = document.createElement('span'); note.textContent = importedCode ? 'No sources supplied with this imported artifact.' : 'Generated · no web research';
         sources.append(note);
       }
+      const evidence = document.createElement('details'); evidence.className = 'ai-evidence';
+      const evidenceTitle = document.createElement('summary'); evidenceTitle.textContent = 'Sources & assumptions';
       const assumptions = document.createElement('p'); assumptions.className = 'ai-assumptions';
       const assumptionText = program.assumptions.length ? `Assumptions: ${program.assumptions.join(' · ')}` : 'No assumptions listed.';
       const researchNote = !importedCode && !program.sources.length ? ' Generated from model knowledge; no web research was used.' : '';
@@ -292,7 +342,10 @@ export function createAIWorkspace(options: {
         });
         label.append(input); card.append(label);
       }
-      card.append(sources, assumptions, code); artifacts.append(card);
+      const provenance = document.createElement('p'); provenance.className = 'ai-provenance'; provenance.textContent = importedCode ? 'Imported code · review before use' : program.sources.length ? 'Web research · review linked sources' : 'Model knowledge · no web research';
+      const checks = document.createElement('p'); checks.className = 'ai-check-note'; checks.textContent = 'Execution checked. Formula correctness is not guaranteed.';
+      evidence.append(evidenceTitle, sources, assumptions);
+      card.append(provenance, checks, evidence, code); artifacts.append(card);
     }
   }
 
@@ -345,7 +398,9 @@ export function createAIWorkspace(options: {
       encode(nextSaved);
       applyOutput(program, output); saved = nextSaved; persist();
       addChat('assistant', `${program.name}: ${program.description}`); renderArtifacts();
-      status.textContent = `Applied ${program.name}. ${program.sources.length ? 'Sources are linked below.' : 'Generated with no web research; assumptions reflect model knowledge.'} Execution checks are shown below; formula correctness is not proven.`;
+      status.textContent = `Applied ${program.name}. Review code, sources, and assumptions in Indicators.`;
+      activateTab('indicators', chatPanel.contains(document.activeElement));
+      artifacts.querySelector<HTMLElement>('.ai-artifact.selected')?.scrollIntoView({ block: 'nearest' });
       receivedResult = true;
     };
     try {

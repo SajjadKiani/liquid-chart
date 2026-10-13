@@ -25,7 +25,7 @@ npm run preview
 
 ## AI indicator studio
 
-The studio places chat on the left and the chart on the right. Requests follow optional research → generated code → isolated smoke checks → at most two repairs → saved artifact. There is no RSI/EMA catalogue or indicator-name dispatch in this workflow. Existing MA 20 remains an ordinary demo control.
+The studio places a tabbed sidebar on the left and the chart on the right. **Chat** keeps the scrolling conversation above a fixed composer; **Indicators** contains the saved library, numeric parameters, import/export, code, sources, and assumptions. New generated/imported artifacts open Indicators automatically. Switching tabs preserves drafts and active requests; Left/Right, Home, and End navigate the focused tabs, and Ctrl/Cmd+Enter submits the composer. Requests follow optional research → generated code → isolated smoke checks → at most two repairs → saved artifact. There is no RSI/EMA catalogue or indicator-name dispatch in this workflow. Existing MA 20 remains an ordinary demo control.
 
 On desktop, drag the divider between chat and chart left or right to resize the panels. The chat width is saved in this browser; both panels retain a minimum usable width. Focus the divider and use Left/Right arrows (Shift for larger steps), Home/End for the limits, or double-click to reset. Escape cancels an active resize. Narrow screens retain the stacked layout.
 
@@ -45,6 +45,21 @@ An existing `OPENAI_API_KEY` also works when OpenRouter is selected; `OPENROUTER
 OpenRouter generation defaults to `AI_MAX_OUTPUT_TOKENS=16000` and `AI_REASONING_EFFORT=low`. A response stopped by the token limit is discarded and retried once from scratch with twice the budget (maximum 32000), within the existing total deadline. Set `AI_REASONING_EFFORT=none` to omit the effort parameter for a model that does not support it. Token limits include provider reasoning overhead; this retry does not bypass authentication, quota, schema, or runtime checks. Restart the API after changing these settings.
 
 For NaraRouter, use `AI_PROVIDER=nararouter`, `OPENAI_BASE_URL=https://router.bynara.id/v1`, `OPENAI_API_KEY` for your Nara key, and `OPENAI_MODEL` for your model alias. Its generation adapter uses Chat Completions. `EXA_API_KEY` optionally enables actual Exa web research. Without available search, generation uses model knowledge and explicitly records **Web research skipped**, with no invented citation links. Search-key authentication and credit errors remain visible.
+
+For an OpenAI-compatible Chat Completions endpoint (including Clean APIs), select the API protocol explicitly:
+
+```dotenv
+AI_PROVIDER=chat-completions
+OPENAI_BASE_URL=https://cleanapis.com/v1
+OPENAI_API_KEY=<your provider key>
+OPENAI_MODEL=<your supported model>
+AI_MAX_OUTPUT_TOKENS=16000
+AI_REASONING_EFFORT=none
+```
+
+The URL and model are required and preserved; the adapter appends `/chat/completions` to the base URL. It sends portable `model`, `messages`, and `max_tokens` fields, without provider-specific tools or mandatory Structured Outputs. Generic reasoning effort is omitted by default; configure it only if your provider supports it. A token-limited completion retries once from scratch at twice the budget, capped at 32000 tokens and the total workflow deadline. Authentication, access, quota, and malformed-output errors remain visible. Optional `EXA_API_KEY` supplies real web research when the checkbox is enabled; absent or unavailable search uses model knowledge with empty citations and an explicit warning. Disabling the checkbox skips Exa entirely. Restart the local API after editing `.env`.
+
+The direct OpenAI adapter uses Responses; changing a model name does not change that API protocol. Select `chat-completions` for a third-party endpoint that implements Chat Completions instead. No automatic provider or model substitution is performed.
 
 For OpenAI directly, use `AI_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.openai.com/v1`, `OPENAI_API_KEY`, and a model supporting Responses web search and Structured Outputs. No LangChain is required.
 

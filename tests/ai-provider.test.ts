@@ -83,7 +83,7 @@ test('Nara errors redact provider and Exa credentials',async()=>{
   await assert.rejects(nara.generate('Task',{mode:'model',summary:'Research',sources:[]},undefined,new AbortController().signal),error=>error instanceof Error&&!error.message.includes('nara-secret'));
   const exa=new NaraRouterIndicatorProvider('nara-secret','exa-secret','laguna-s-2.1','https://router.bynara.id/v1',async()=>new Response(JSON.stringify({error:'bad key exa-secret'}),{status:401}));
   await assert.rejects(exa.research('Task',new AbortController().signal),error=>error instanceof Error&&!error.message.includes('exa-secret'));
-  const malformed=new NaraRouterIndicatorProvider('nara-key',undefined,'laguna-s-2.1','https://router.bynara.id/v1',async()=>ok({choices:[{message:{content:'not json'}}]}));
+  const malformed=new NaraRouterIndicatorProvider('nara-key',undefined,'laguna-s-2.1','https://router.bynara.id/v1',async()=>ok({choices:[{message:{content:'not json'},finish_reason:'stop'}]}));
   await assert.rejects(malformed.generate('Task',{mode:'model',summary:'No web research',sources:[]},undefined,new AbortController().signal),error=>error instanceof Error&&error.message.includes('Provider response')&&!error.message.includes('OpenRouter'));
 });
 
